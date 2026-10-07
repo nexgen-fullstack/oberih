@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Оберіг</string>
+    <string name="a11y_label">Оберіг — захист водія</string>
+    <string name="a11y_description">Оберіг читає ТІЛЬКИ екран нового замовлення в Uber Driver і Lyft Driver, щоб показати колір зони (червона, помаранчева, жовта, зелена) і сказати голосом, чи вигідна поїздка. Програма нічого не натискає за вас і нікуди не відправляє ваші дані, крім пошуку адреси на карті.</string>
+</resources>
