@@ -31,7 +31,7 @@ data class Route(
  */
 object Geo {
     private const val TAG = "Geo"
-    private const val UA = "Oberih/1.0 (driver safety helper; personal use)"
+    const val UA = "Oberih/1.0 (driver safety helper; personal use)"
     private val cache = LruCache<String, GeoPoint>(300)
 
     // Рамка пошуку: увесь Іллінойс + південь Вісконсину до Мілвокі.

@@ -64,7 +64,7 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("liveZones", true)
         set(v) = sp.edit { putBoolean("liveZones", v) }
 
-    /** Попередження про аварії, перекриття, небезпеки. */
+    /** Попередження про аварії, перекриття, небезпеки попереду . */
     var roadAlerts: Boolean
         get() = sp.getBoolean("roadAlerts", true)
         set(v) = sp.edit { putBoolean("roadAlerts", v) }
@@ -123,6 +123,10 @@ class Prefs(context: Context) {
     var latestApkUrl: String?
         get() = sp.getString("latestApkUrl", null)
         set(v) = sp.edit { putString("latestApkUrl", v) }
+
+    var latestNotes: String?
+        get() = sp.getString("latestNotes", null)
+        set(v) = sp.edit { putString("latestNotes", v) }
 
     var lastDataError: String?
         get() = sp.getString("lastDataError", null)

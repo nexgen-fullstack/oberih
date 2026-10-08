@@ -151,6 +151,9 @@ private fun App(tab: Int, setTab: (Int) -> Unit, shared: String?, consumeShared:
 fun isIgnoringBattery(ctx: Context): Boolean =
     (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(ctx.packageName)
 
+/** Чи вже показували віконце оновлення в цьому запуску програми. */
+private var updatePromptShown = false
+
 fun fmtDate(ms: Long): String = SimpleDateFormat("dd.MM HH:mm", Locale("uk")).format(Date(ms))
 
 @Composable
@@ -169,6 +172,9 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, startWizard: () -> Unit = {}
             ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
     }
     var update by remember { mutableStateOf(UpdateChecker.cached(Prefs(ctx))) }
+    // Віконце оновлення показуємо саме один раз за запуск програми; далі — з кнопки на Головній.
+    var updateOpen by remember { mutableStateOf(false) }
+    update?.let { u -> if (updateOpen) UpdateDialog(u, resumeTick) { updateOpen = false } }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     var sosOpen by remember { mutableStateOf(false) }
     if (sosOpen) SosDialog { sosOpen = false }
@@ -187,6 +193,7 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, startWizard: () -> Unit = {}
         CrimeRepository.map(ctx) // підвантажує й Мілвокі
         if (CrimeRepository.isStale(g)) { dataError = CrimeRepository.refreshIfStale(ctx) }
         update = runCatching { UpdateChecker.check(ctx) }.getOrNull()
+        if (update != null && !updatePromptShown) { updatePromptShown = true; updateOpen = true }
     }
 
     val ready = running && grid != null
@@ -226,9 +233,10 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, startWizard: () -> Unit = {}
             item {
                 SectionCard {
                     Text("Є нова версія ${u.version}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Hint("Натисни, завантаж файл і встанови поверх старої версії. Налаштування збережуться.")
-                    Button(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u.apkUrl))) },
-                        modifier = Modifier.fillMaxWidth()) { Text("Завантажити оновлення") }
+                    Hint("Натисни «Оновити» — програма сама завантажить і встановить нову версію. Налаштування збережуться.")
+                    Button(onClick = { updateOpen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32), contentColor = Color.White),
+                        modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Оновити", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
                 }
             }
         }

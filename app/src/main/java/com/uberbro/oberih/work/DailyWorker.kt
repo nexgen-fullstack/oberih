@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -42,13 +41,13 @@ class DailyWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         ) return
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("updates", "Оновлення програми", NotificationManager.IMPORTANCE_DEFAULT))
-        val pi = PendingIntent.getActivity(
-            ctx, 1, Intent(Intent.ACTION_VIEW, Uri.parse(url)), PendingIntent.FLAG_IMMUTABLE,
-        )
+        // Відкриває Оберіг — там одразу з'явиться віконце «Оновити».
+        val open = Intent(ctx, com.uberbro.oberih.ui.MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val pi = PendingIntent.getActivity(ctx, 1, open, PendingIntent.FLAG_IMMUTABLE)
         val n = NotificationCompat.Builder(ctx, "updates")
             .setSmallIcon(R.drawable.ic_launcher_fg)
             .setContentTitle("Оберіг: є нова версія $version")
-            .setContentText("Натисни, щоб завантажити і встановити.")
+            .setContentText("Натисни — і далі «Оновити». Все встановиться саме.")
             .setContentIntent(pi)
             .setAutoCancel(true)
             .build()

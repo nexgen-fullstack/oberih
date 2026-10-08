@@ -13,6 +13,8 @@
     <!-- Тільки для SOS: надіслати SMS усім довіреним людям одним натисканням. -->
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
+    <!-- Оновлення одним натисканням: програма сама відкриває встановлення нової версії. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Щоб на Android 11+ можна було перевірити, чи встановлені Uber/Lyft/Waze, і відкрити Waze. -->
     <queries>
