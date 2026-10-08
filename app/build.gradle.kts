@@ -20,8 +20,8 @@ android {
         applicationId = "com.uberbro.oberih"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.3.0"
+        versionCode = 5
+        versionName = "1.3.1"
         // Репозиторій GitHub, де публікуються нові версії (для автоперевірки оновлень).
         buildConfigField("String", "UPDATE_REPO", "\"nexgen-fullstack/oberih\"")
     }

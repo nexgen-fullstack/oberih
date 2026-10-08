@@ -133,20 +133,27 @@ object ScreenSamples {
      * Повертає false, якщо надсилати нічого.
      */
     fun share(ctx: Context, preferWhatsApp: Boolean): Boolean {
-        val dir = imagesDir(ctx)
-        val uris = ArrayList<android.net.Uri>()
-        val auth = ctx.packageName + ".files"
-        images(ctx).take(MAX_IMAGES).forEach { uris += androidx.core.content.FileProvider.getUriForFile(ctx, auth, it) }
+        val imgs = images(ctx).take(MAX_IMAGES)
         val text = read(ctx)
-        if (text.isNotBlank()) {
-            val tf = File(dir, "oberih_screens.txt").apply { writeText(text) }
-            uris += androidx.core.content.FileProvider.getUriForFile(ctx, auth, tf)
+        if (imgs.isEmpty() && text.isBlank()) return false
+        // Усе пакуємо в ОДИН zip: WhatsApp надійно надсилає один документ,
+        // а кілька файлів різних типів (картинки + текст) часто відкидає і шле тільки підпис.
+        val outDir = File(ctx.cacheDir, "shared").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+        val zip = File(outDir, "oberih_zrazky_${stamp("yyyyMMdd_HHmm")}.zip")
+        java.util.zip.ZipOutputStream(zip.outputStream().buffered()).use { z ->
+            for (f in imgs) {
+                z.putNextEntry(java.util.zip.ZipEntry(f.name)); f.inputStream().use { it.copyTo(z) }; z.closeEntry()
+            }
+            if (text.isNotBlank()) {
+                z.putNextEntry(java.util.zip.ZipEntry("oberih_screens.txt")); z.write(text.toByteArray()); z.closeEntry()
+            }
         }
-        if (uris.isEmpty()) return false
-        val intent = android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).apply {
-            type = if (text.isBlank()) "image/jpeg" else "*/*"
-            putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
-            putExtra(android.content.Intent.EXTRA_TEXT, "Оберіг: зразки екранів для покращення (${uris.size} файлів)")
+        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", zip)
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "application/zip"
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            clipData = android.content.ClipData.newRawUri("oberih", uri)
+            putExtra(android.content.Intent.EXTRA_TEXT, "Оберіг: зразки екранів (${imgs.size} скріншотів)")
             addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         if (preferWhatsApp) {
