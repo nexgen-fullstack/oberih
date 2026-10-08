@@ -58,8 +58,13 @@ object CrimeRepository {
     fun isStale(g: RiskGrid?): Boolean =
         g == null || System.currentTimeMillis() - g.generatedAt > 20 * 3600_000L
 
+    /** Оновлює, тільки якщо дані застарі (щоб програма й фонове завдання не качали двічі одночасно). */
+    suspend fun refreshIfStale(ctx: Context): String? =
+        if (isStale(_grid.value ?: load(ctx))) refresh(ctx, onlyIfStale = true) else null
+
     /** Завантажує свіжі дані з порталу і перебудовує карту. Повертає null при успіху або текст помилки. */
-    suspend fun refresh(ctx: Context): String? = mutex.withLock {
+    suspend fun refresh(ctx: Context, onlyIfStale: Boolean = false): String? = mutex.withLock {
+        if (onlyIfStale && !isStale(_grid.value)) return@withLock null
         withContext(Dispatchers.IO) {
             _progress.value = 0f
             try {

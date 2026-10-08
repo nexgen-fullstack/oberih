@@ -33,6 +33,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.uberbro.oberih.BuildConfig
+import com.uberbro.oberih.data.DistanceUnit
 import com.uberbro.oberih.data.FlashMode
 import com.uberbro.oberih.data.Prefs
 import com.uberbro.oberih.data.Sensitivity
@@ -51,6 +52,12 @@ fun SettingsScreen(modifier: Modifier) {
     var speakProfit by remember { mutableStateOf(prefs.speakProfit) }
     var flash by remember { mutableStateOf(prefs.flashMode) }
     var sens by remember { mutableStateOf(prefs.sensitivity) }
+    var police by remember { mutableStateOf(prefs.policeAlerts) }
+    var road by remember { mutableStateOf(prefs.roadAlerts) }
+    var near by remember { mutableStateOf(prefs.nearMeters) }
+    var unit by remember { mutableStateOf(prefs.distanceUnit) }
+    var screens by remember { mutableStateOf(prefs.collectScreens) }
+    var sos by remember { mutableStateOf(prefs.sosNumber) }
 
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Налаштування", fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -67,6 +74,30 @@ fun SettingsScreen(modifier: Modifier) {
         SectionCard {
             Segments(FlashMode.entries, flash, { it.label }) { flash = it; prefs.flashMode = it }
             Hint("«Весь екран» — 3 кольорові спалахи, потім рамка. «Тільки рамка» — менше відволікає. Вночі спалах автоматично м'якший. Дотики завжди проходять крізь сигнал.")
+        }
+
+        SectionTitle("ПОЛІЦІЯ Й АВАРІЇ (З ЕКРАНА WAZE)")
+        SectionCard {
+            SwitchRow("🚨 Попереджати про поліцію", police) { police = it; prefs.policeAlerts = it }
+            SwitchRow("⚠ Аварії, перекриття, небезпеки", road) { road = it; prefs.roadAlerts = it }
+            Text("Повторне попередження, коли до місця лишилось:")
+            Segments(listOf(300, 500, 800, 1000), near, { if (it < 1000) "$it м" else "1 км" }) { near = it; prefs.nearMeters = it }
+            Text("Відстань казати в")
+            Segments(DistanceUnit.entries, unit, { it.label }) { unit = it; prefs.distanceUnit = it }
+            Hint("Перше попередження — одразу, як Waze покаже поліцію чи аварію (зазвичай за 1–2 км). Друге — ближче до місця.")
+        }
+
+        SectionTitle("SOS")
+        SectionCard {
+            OutlinedTextField(
+                value = sos,
+                onValueChange = { sos = it; prefs.sosNumber = it },
+                label = { Text("Номер рідної людини (з кодом країни, напр. +380…)", fontSize = 13.sp) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Hint("Кнопка SOS на Головній відкриє WhatsApp цієї людини з повідомленням «Мені потрібна допомога» і точкою на карті. Залишиться тільки натиснути «Надіслати».")
         }
 
         SectionTitle("НАСКІЛЬКИ СУВОРО ФАРБУВАТИ ЗОНИ")
@@ -86,6 +117,12 @@ fun SettingsScreen(modifier: Modifier) {
             NumberField("Знос (шини, масло, ремонт), $ на милю", prefs.wearPerMile) { prefs.wearPerMile = it }
             NumberField("Мінімум «вигідно», $ чистими за годину", prefs.targetPerHour) { prefs.targetPerHour = it }
             Hint("Чистий заробіток = ціна замовлення − бензин − знос, поділено на весь час (дорога до пасажира + поїздка).")
+        }
+
+        SectionTitle("ЗРАЗКИ ЕКРАНІВ")
+        SectionCard {
+            SwitchRow("Автоматично зберігати скріншоти Uber/Lyft/Waze", screens) { screens = it; prefs.collectScreens = it }
+            Hint("Потрібно, щоб покращувати розпізнавання. Скріншоти лежать тільки на телефоні (до 30 штук). Надіслати їх можна з Журналу кнопкою «Надіслати у WhatsApp». Працює на Android 11 і новіших.")
         }
 
         SectionTitle("ПРО ПРОГРАМУ")

@@ -5,12 +5,18 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Тільки для кнопки SOS: надіслати своє місце рідним. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- Щоб на Android 11+ можна було перевірити, чи встановлені Uber/Lyft/Waze, і відкрити Waze. -->
     <queries>
         <package android:name="com.ubercab.driver" />
         <package android:name="com.lyft.android.driver" />
         <package android:name="com.waze" />
+        <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>

@@ -6,6 +6,7 @@ import androidx.core.content.edit
 
 enum class FlashMode(val label: String) { FULL("Весь екран"), FRAME("Тільки рамка") }
 enum class VoiceLang(val label: String) { UK("Українська"), EN("English") }
+enum class DistanceUnit(val label: String) { KM("Кілометри"), MI("Милі") }
 
 /** Усі налаштування програми. Значення за замовчуванням підібрані для Чикаго. */
 class Prefs(context: Context) {
@@ -51,6 +52,35 @@ class Prefs(context: Context) {
     var targetPerHour: Float
         get() = sp.getFloat("targetPerHour", 25f)
         set(v) = sp.edit { putFloat("targetPerHour", v) }
+
+    /** Попередження про поліцію з екрана Waze / Google Maps. */
+    var policeAlerts: Boolean
+        get() = sp.getBoolean("policeAlerts", true)
+        set(v) = sp.edit { putBoolean("policeAlerts", v) }
+
+    /** Попередження про аварії, перекриття, небезпеки. */
+    var roadAlerts: Boolean
+        get() = sp.getBoolean("roadAlerts", true)
+        set(v) = sp.edit { putBoolean("roadAlerts", v) }
+
+    /** За скільки метрів до місця повторити попередження. */
+    var nearMeters: Int
+        get() = sp.getInt("nearMeters", 500)
+        set(v) = sp.edit { putInt("nearMeters", v) }
+
+    var distanceUnit: DistanceUnit
+        get() = enumOr(sp.getString("distanceUnit", null), DistanceUnit.KM)
+        set(v) = sp.edit { putString("distanceUnit", v.name) }
+
+    /** Автоматичні скріншоти екранів Uber/Lyft/Waze для покращення розпізнавання. */
+    var collectScreens: Boolean
+        get() = sp.getBoolean("collectScreens", true)
+        set(v) = sp.edit { putBoolean("collectScreens", v) }
+
+    /** Номер для SOS (WhatsApp або SMS), у форматі +1312… */
+    var sosNumber: String
+        get() = sp.getString("sosNumber", "") ?: ""
+        set(v) = sp.edit { putString("sosNumber", v.trim()) }
 
     var lastUpdateCheck: Long
         get() = sp.getLong("lastUpdateCheck", 0)

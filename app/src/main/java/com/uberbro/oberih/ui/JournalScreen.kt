@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,6 +45,7 @@ fun JournalScreen(modifier: Modifier) {
     LaunchedEffect(Unit) { Journal.load(ctx) }
     val entries by Journal.entries.collectAsState()
     var samples by remember { mutableIntStateOf(ScreenSamples.count(ctx)) }
+    var shots by remember { mutableIntStateOf(ScreenSamples.images(ctx).size) }
     val startOfDay = remember {
         Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }.timeInMillis
     }
@@ -78,15 +82,15 @@ fun JournalScreen(modifier: Modifier) {
         item {
             SectionCard {
                 Text("Зразки екранів для покращення", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Hint("Збережено: $samples. Якщо Оберіг не зреагував на замовлення або помилився — надішли ці зразки розробнику (тільки текст з екрана Uber/Lyft, без фото).")
+                Hint("Скріншотів: $shots · текстових зразків: $samples.\nОберіг сам знімає екрани замовлень Uber/Lyft і попереджень Waze. Раз на кілька днів надсилай їх розробнику — так програма краще розпізнаватиме замовлення й поліцію. На скріншотах можуть бути адреси пасажирів, тому надсилай тільки своїм.")
+                Button(onClick = {
+                    if (!ScreenSamples.share(ctx, preferWhatsApp = true))
+                        android.widget.Toast.makeText(ctx, "Зразків поки немає — вони з'являться під час роботи", android.widget.Toast.LENGTH_LONG).show()
+                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366), contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth()) { Text("Надіслати у WhatsApp", fontWeight = FontWeight.Bold) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        val text = ScreenSamples.read(ctx).ifBlank { "Зразків поки немає" }
-                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text); putExtra(Intent.EXTRA_SUBJECT, "Оберіг: зразки екранів")
-                        }, "Надіслати зразки"))
-                    }) { Text("Поділитися") }
-                    OutlinedButton(onClick = { ScreenSamples.clear(ctx); samples = 0 }) { Text("Очистити") }
+                    OutlinedButton(onClick = { ScreenSamples.share(ctx, preferWhatsApp = false) }) { Text("Інший спосіб") }
+                    OutlinedButton(onClick = { ScreenSamples.clear(ctx); samples = 0; shots = 0 }) { Text("Очистити") }
                 }
             }
         }

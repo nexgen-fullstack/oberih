@@ -1,7 +1,10 @@
 package com.uberbro.oberih.service
 
 import android.accessibilityservice.AccessibilityService
+import android.graphics.Bitmap
 import android.graphics.Rect
+import android.os.Build
+import android.view.Display
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -14,6 +17,11 @@ import com.uberbro.oberih.data.JournalEntry
 import com.uberbro.oberih.data.Level
 import com.uberbro.oberih.data.Prefs
 import com.uberbro.oberih.data.ScreenSamples
+import com.uberbro.oberih.hazard.HazardAlert
+import com.uberbro.oberih.hazard.HazardParser
+import com.uberbro.oberih.hazard.HazardTracker
+import com.uberbro.oberih.hazard.HazardType
+import com.uberbro.oberih.hazard.Stage
 import com.uberbro.oberih.offer.OfferAnalyzer
 import com.uberbro.oberih.offer.OfferParser
 import com.uberbro.oberih.offer.ParsedOffer
@@ -42,7 +50,11 @@ class OberihAccessibilityService : AccessibilityService() {
         private const val TAG = "Oberih"
         const val UBER = "com.ubercab.driver"
         const val LYFT = "com.lyft.android.driver"
+        const val WAZE = "com.waze"
+        const val GMAPS = "com.google.android.apps.maps"
         const val DEMO_MARKER = "OBERIH_DEMO_OFFER"
+        const val DEMO_NAV_MARKER = "OBERIH_DEMO_NAV"
+        private val WATCHED = setOf(UBER, LYFT, WAZE, GMAPS)
 
         private val _running = MutableStateFlow(false)
         val running: StateFlow<Boolean> = _running
@@ -69,6 +81,10 @@ class OberihAccessibilityService : AccessibilityService() {
     private val recent = LinkedHashMap<String, Pair<Long, Verdict?>>() // підпис → (коли аналізували, результат)
 
     private val scanRunnable = Runnable { scan() }
+    private var lastScanAt = 0L
+    private var lastShotAt = 0L
+    private val lastHazardShot = HashMap<String, Long>()
+    private val hazards = HazardTracker { prefs.nearMeters.toDouble() }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -82,22 +98,28 @@ class OberihAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(e: AccessibilityEvent?) {
         val pkg = e?.packageName?.toString() ?: return
-        if (pkg != UBER && pkg != LYFT && pkg != packageName) return
+        if (pkg !in WATCHED && pkg != packageName) return
         if (pkg != packageName) runCatching { lastSource = e.source }
         val now = SystemClock.uptimeMillis()
         if (firstPendingAt == 0L) firstPendingAt = now
         handler.removeCallbacks(scanRunnable)
         // Чекаємо, поки екран «заспокоїться», але не довше ~0,7 с від першої зміни.
-        handler.postDelayed(scanRunnable, if (now - firstPendingAt > 700) 0 else 220)
+        var delay = if (now - firstPendingAt > 700) 0L else 220L
+        // Карта Waze змінюється безперервно — її читаємо не частіше ніж раз на 0,8 с (економія батареї).
+        if (pkg == WAZE || pkg == GMAPS) delay = maxOf(delay, 800 - (now - lastScanAt))
+        handler.postDelayed(scanRunnable, delay)
     }
 
     private fun scan() {
         firstPendingAt = 0L
+        lastScanAt = SystemClock.uptimeMillis()
         val captured = try { collect() } catch (t: Throwable) { Log.w(TAG, "collect", t); return }
         val h = resources.displayMetrics.heightPixels
         var found: ParsedOffer? = null
         var foundText = ""
         for ((pkg, items) in captured) {
+            val demoNav = pkg == packageName && items.any { it.text == DEMO_NAV_MARKER }
+            if (pkg == WAZE || pkg == GMAPS || demoNav) { checkHazards(pkg, items, demoNav); continue }
             if (pkg == packageName && items.none { it.text == DEMO_MARKER }) continue
             val app = when (pkg) { UBER -> "Uber"; LYFT -> "Lyft"; else -> "Демо" }
             val offer = OfferParser.parse(app, items.filter { it.text != DEMO_MARKER }, h)
@@ -138,17 +160,93 @@ class OberihAccessibilityService : AccessibilityService() {
     private fun maybeSample(app: String, recognized: Boolean, text: String) {
         if (!recognized && !OfferParser.looksLikeOfferCandidate(text)) return
         val now = SystemClock.uptimeMillis()
-        if (!recognized && now - lastSampleAt < 3_000) return
+        if (!recognized && now - lastSampleAt < 20_000) return
         lastSampleAt = now
         scope.launch(Dispatchers.IO) { runCatching { ScreenSamples.add(applicationContext, app, recognized, text) } }
+        captureScreen("${app}_${if (recognized) "ok" else "NOT"}")
+    }
+
+    // ---------- Поліція та небезпеки з екрана Waze / Google Maps ----------
+
+    private fun checkHazards(pkg: String, items: List<ScreenText>, demo: Boolean) {
+        val clean = items.filter { it.text != DEMO_NAV_MARKER }
+        val full = clean.joinToString("\n") { it.text }
+        if (!HazardParser.mentionsHazard(full)) return
+        val sightings = HazardParser.parse(clean).filter {
+            if (it.type == HazardType.POLICE) prefs.policeAlerts else prefs.roadAlerts
+        }
+        val app = when (pkg) { WAZE -> "Waze"; GMAPS -> "GoogleMaps"; else -> "Демо" }
+        // Зразок для покращення: раз на 30 с на кожен тип — і для розпізнаних, і для нерозпізнаних.
+        if (!demo) {
+            val key = sightings.firstOrNull()?.type?.name ?: "unknown"
+            val now = SystemClock.uptimeMillis()
+            if (now - (lastHazardShot[key] ?: 0L) > 30_000) {
+                lastHazardShot[key] = now
+                scope.launch(Dispatchers.IO) { runCatching { ScreenSamples.add(applicationContext, app, sightings.isNotEmpty(), full) } }
+                captureScreen("${app}_$key")
+            }
+        }
+        val alerts = hazards.onSightings(sightings, SystemClock.uptimeMillis())
+        // Поліція важливіша — її оголошуємо першою, якщо одночасно кілька.
+        alerts.minByOrNull { it.type.ordinal }?.let { announceHazard(it) }
+    }
+
+    private fun announceHazard(a: HazardAlert) {
+        val unit = prefs.distanceUnit
+        val sub = buildList {
+            a.meters?.let { add(Phrases.shortDistance(it, unit)) }
+            add(if (a.stage == Stage.FAR) "попереду" else "зовсім близько")
+        }.joinToString(" · ")
+        overlay.showLights(a.type, sub, com.uberbro.oberih.util.SunTimes.isNight())
+        if (prefs.voiceOn) {
+            val lang = speaker.effectiveLang(prefs.voiceLang)
+            speaker.speak(Phrases.hazard(a, lang, unit), lang)
+        }
+    }
+
+    /** Для кнопки «Перевірити мигалку». */
+    fun demoHazard(type: HazardType, meters: Double?, stage: Stage) = announceHazard(HazardAlert(type, meters, stage))
+
+    // ---------- Скріншоти для покращення розпізнавання (Android 11+) ----------
+
+    private fun captureScreen(tag: String) {
+        if (!prefs.collectScreens || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastShotAt < 2_000) return
+        lastShotAt = now
+        runCatching {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(result: ScreenshotResult) {
+                    val buffer = result.hardwareBuffer
+                    val colorSpace = result.colorSpace
+                    scope.launch(Dispatchers.IO) {
+                        runCatching {
+                            val hw = Bitmap.wrapHardwareBuffer(buffer, colorSpace) ?: return@runCatching
+                            val soft = hw.copy(Bitmap.Config.ARGB_8888, false)
+                            hw.recycle()
+                            val w = 720
+                            val scaled = if (soft.width > w) Bitmap.createScaledBitmap(soft, w, soft.height * w / soft.width, true) else soft
+                            ScreenSamples.addImage(applicationContext, scaled, tag)
+                            if (scaled !== soft) soft.recycle()
+                            scaled.recycle()
+                        }.onFailure { Log.w(TAG, "screenshot save", it) }
+                        buffer.close()
+                    }
+                }
+
+                override fun onFailure(errorCode: Int) { Log.w(TAG, "screenshot failed $errorCode") }
+            })
+        }.onFailure { Log.w(TAG, "screenshot", it) }
     }
 
     private fun onNewOffer(offer: ParsedOffer, rawText: String) {
         val sig = offer.signature
         recent[sig] = SystemClock.uptimeMillis() to null
         if (recent.size > 30) recent.remove(recent.keys.first())
-        if (offer.app != "Демо") maybeSample(offer.app, true, rawText)
-        overlay.showAnalyzing()
+        // У тестовій (debug) збірці зразки знімаються і з імітації — щоб перевірити скріншоти на емуляторі.
+        if (offer.app != "Демо" || com.uberbro.oberih.BuildConfig.DEBUG) maybeSample(offer.app, true, rawText)
+        // Скріншот знімається асинхронно — даємо йому мить, щоб на ньому був чистий екран Uber/Lyft.
+        handler.postDelayed({ if (analyzeJob?.isActive == true) overlay.showAnalyzing() }, 150)
         analyzeJob?.cancel()
         analyzeJob = scope.launch {
             val v = withTimeoutOrNull(8_000) { OfferAnalyzer.analyze(applicationContext, offer) }
@@ -219,7 +317,7 @@ class OberihAccessibilityService : AccessibilityService() {
         val rect = Rect()
         for (root in roots) {
             val pkg = root.packageName?.toString() ?: continue
-            if (pkg != UBER && pkg != LYFT && pkg != packageName) continue
+            if (pkg !in WATCHED && pkg != packageName) continue
             val list = out.getOrPut(pkg) { mutableListOf() }
             walk(root, list, 0, rect)
         }
@@ -248,7 +346,7 @@ class OberihAccessibilityService : AccessibilityService() {
         instance = null
         _running.value = false
         handler.removeCallbacksAndMessages(null)
-        if (::overlay.isInitialized) overlay.hideNow()
+        if (::overlay.isInitialized) overlay.hideAll()
         if (::speaker.isInitialized) speaker.shutdown()
         scope.cancel()
         super.onDestroy()

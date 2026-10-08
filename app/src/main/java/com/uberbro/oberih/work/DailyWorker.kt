@@ -21,7 +21,6 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.uberbro.oberih.R
 import com.uberbro.oberih.data.CrimeRepository
-import com.uberbro.oberih.data.Prefs
 import com.uberbro.oberih.util.UpdateChecker
 import java.util.concurrent.TimeUnit
 
@@ -31,7 +30,7 @@ class DailyWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
     override suspend fun doWork(): Result {
         val ctx = applicationContext
         val grid = CrimeRepository.load(ctx)
-        val err = if (CrimeRepository.isStale(grid)) CrimeRepository.refresh(ctx) else null
+        val err = CrimeRepository.refreshIfStale(ctx)
         val update = runCatching { UpdateChecker.check(ctx, force = true) }.getOrNull()
         if (update != null) notifyUpdate(ctx, update.version, update.pageUrl)
         return if (err != null && grid == null) Result.retry() else Result.success()

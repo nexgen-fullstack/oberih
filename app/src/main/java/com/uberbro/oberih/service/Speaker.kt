@@ -6,8 +6,12 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import com.uberbro.oberih.data.DistanceUnit
 import com.uberbro.oberih.data.Level
 import com.uberbro.oberih.data.VoiceLang
+import com.uberbro.oberih.hazard.HazardAlert
+import com.uberbro.oberih.hazard.HazardType
+import com.uberbro.oberih.hazard.Stage
 import com.uberbro.oberih.offer.Profit
 import com.uberbro.oberih.offer.Verdict
 import java.util.Locale
@@ -40,6 +44,72 @@ object Phrases {
             else -> "доларів"
         }
         return "$n $word"
+    }
+
+    private fun plural(n: Int, one: String, few: String, many: String): String {
+        val a = kotlin.math.abs(n)
+        return when {
+            a % 10 == 1 && a % 100 != 11 -> one
+            a % 10 in 2..4 && a % 100 !in 12..14 -> few
+            else -> many
+        }
+    }
+
+    /** «за 400 метрів», «за кілометр», «за 2 кілометри»; англійською — милі/фути. */
+    fun distance(meters: Double, lang: VoiceLang, unit: DistanceUnit): String {
+        if (lang == VoiceLang.EN || unit == DistanceUnit.MI) {
+            val miles = meters / 1609.34
+            return when (lang) {
+                VoiceLang.EN -> when {
+                    miles < 0.15 -> "in ${roundTo(meters / 0.3048, 100)} feet"
+                    miles < 0.95 -> "in ${"%.1f".format(java.util.Locale.US, miles)} miles"
+                    else -> { val n = miles.roundToInt().coerceAtLeast(1); "in $n mile${if (n == 1) "" else "s"}" }
+                }
+                VoiceLang.UK -> when {
+                    miles < 0.15 -> "за ${roundTo(meters / 0.3048, 100)} футів"
+                    miles < 0.75 -> "за пів милі"
+                    else -> { val n = miles.roundToInt().coerceAtLeast(1); "за $n ${plural(n, "милю", "милі", "миль")}" }
+                }
+            }
+        }
+        return when {
+            meters < 950 -> "за ${roundTo(meters, if (meters < 300) 50 else 100)} метрів"
+            meters < 1_500 -> "за кілометр"
+            else -> { val n = (meters / 1000).roundToInt(); "за $n ${plural(n, "кілометр", "кілометри", "кілометрів")}" }
+        }
+    }
+
+    /** Коротко для плашки: «1,8 км», «400 м», «1.1 mi», «500 ft». */
+    fun shortDistance(meters: Double, unit: DistanceUnit): String = when (unit) {
+        DistanceUnit.KM -> if (meters < 950) "${roundTo(meters, 50)} м" else "%.1f км".format(java.util.Locale("uk"), meters / 1000)
+        DistanceUnit.MI -> if (meters < 240) "${roundTo(meters / 0.3048, 50)} ft" else "%.1f mi".format(java.util.Locale.US, meters / 1609.34)
+    }
+
+    private fun roundTo(v: Double, step: Int): Int = ((v / step).roundToInt() * step).coerceAtLeast(step)
+
+    fun hazard(a: HazardAlert, lang: VoiceLang, unit: DistanceUnit): String {
+        val d = a.meters?.let { " " + distance(it, lang, unit) } ?: ""
+        return when (lang) {
+            VoiceLang.UK -> {
+                val what = when (a.type) {
+                    HazardType.POLICE -> "поліція"
+                    HazardType.CRASH -> "аварія"
+                    HazardType.CLOSURE -> "перекрита дорога"
+                    HazardType.HAZARD -> "небезпека на дорозі"
+                }
+                if (a.stage == Stage.FAR) "Увага! Попереду $what$d."
+                else "${what.replaceFirstChar { it.uppercase() }}$d. Будь уважний."
+            }
+            VoiceLang.EN -> {
+                val what = when (a.type) {
+                    HazardType.POLICE -> "police"
+                    HazardType.CRASH -> "crash"
+                    HazardType.CLOSURE -> "road closed"
+                    HazardType.HAZARD -> "road hazard"
+                }
+                if (a.stage == Stage.FAR) "Attention! $what ahead$d." else "${what.replaceFirstChar { it.uppercase() }}$d."
+            }
+        }
     }
 
     fun full(v: Verdict, lang: VoiceLang, speakProfit: Boolean): String {

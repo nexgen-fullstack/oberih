@@ -18,6 +18,7 @@ import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import com.uberbro.oberih.data.FlashMode
 import com.uberbro.oberih.data.Level
+import com.uberbro.oberih.hazard.HazardType
 import com.uberbro.oberih.offer.Profit
 import com.uberbro.oberih.offer.Verdict
 import kotlin.math.roundToInt
@@ -30,6 +31,8 @@ class AlertOverlay(private val ctx: Context) {
     private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val handler = Handler(Looper.getMainLooper())
     private var view: SignalView? = null
+    private var lights: LightsView? = null
+    private val hideLights = Runnable { removeLights() }
     private var shownAt = 0L
     private val autoHide = Runnable { hideNow() }
     private val deferredHide = Runnable { hideNow() }
@@ -76,6 +79,27 @@ class AlertOverlay(private val ctx: Context) {
 
     val isShowing: Boolean get() = view != null
 
+    /**
+     * Мигалка: поліція — червоно-синя, аварія/небезпека — жовта. ~3 секунди миготіння
+     * (не частіше 3 разів на секунду — безпечно для очей), потім плашка ще кілька секунд.
+     */
+    fun showLights(type: HazardType, subtitle: String, night: Boolean) {
+        val v = lights ?: LightsView(ctx).also {
+            runCatching { wm.addView(it, overlayParams("Oberih lights")) }.onFailure { return }
+            lights = it
+        }
+        v.start(type, subtitle, if (night) 0.30f else 0.42f)
+        handler.removeCallbacks(hideLights)
+        handler.postDelayed(hideLights, 8_000)
+    }
+
+    private fun removeLights() {
+        lights?.let { it.stop(); runCatching { wm.removeView(it) } }
+        lights = null
+    }
+
+    fun hideAll() { hideNow(); handler.removeCallbacks(hideLights); removeLights() }
+
     private fun scheduleAutoHide(ms: Long) {
         handler.removeCallbacks(autoHide)
         handler.removeCallbacks(deferredHide)
@@ -85,7 +109,13 @@ class AlertOverlay(private val ctx: Context) {
     private fun ensureView(): SignalView {
         view?.let { return it }
         val v = SignalView(ctx)
-        val lp = WindowManager.LayoutParams(
+        wm.addView(v, overlayParams("Oberih signal"))
+        view = v
+        return v
+    }
+
+    private fun overlayParams(name: String): WindowManager.LayoutParams {
+        return WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -99,11 +129,89 @@ class AlertOverlay(private val ctx: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
-            title = "Oberih signal"
+            title = name
         }
-        wm.addView(v, lp)
-        view = v
-        return v
+    }
+
+    private class LightsView(ctx: Context) : View(ctx) {
+        private val density = ctx.resources.displayMetrics.density
+        private var type = HazardType.POLICE
+        private var subtitle = ""
+        private var peak = 0.4f
+        private var phase = -1 // -1 — миготіння закінчилось
+        private var animator: ValueAnimator? = null
+        private val paint = Paint()
+        private val pill = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); textSize = 24 * density
+        }
+        private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 16 * density }
+        private val rect = RectF()
+
+        fun start(t: HazardType, sub: String, p: Float) {
+            stop()
+            type = t; subtitle = sub; peak = p
+            animator = ValueAnimator.ofInt(0, PHASES).apply {
+                duration = PHASES * 400L
+                interpolator = LinearInterpolator()
+                addUpdateListener { val ph = it.animatedValue as Int; if (ph != phase) { phase = ph; invalidate() } }
+                addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) { phase = -1; invalidate() }
+                })
+                start()
+            }
+        }
+
+        fun stop() { animator?.cancel(); animator = null }
+
+        private val colorA get() = if (type == HazardType.POLICE) RED else AMBER
+        private val colorB get() = if (type == HazardType.POLICE) BLUE else AMBER
+
+        override fun onDraw(canvas: Canvas) {
+            val w = width.toFloat(); val h = height.toFloat()
+            val stroke = 12 * density
+            if (phase in 0 until PHASES) {
+                val even = phase % 2 == 0
+                if (type == HazardType.POLICE) {
+                    // Ліва половина червона, права синя — міняються місцями.
+                    paint.color = if (even) colorA else colorB; paint.alpha = (peak * 255).toInt()
+                    canvas.drawRect(0f, 0f, w / 2, h, paint)
+                    paint.color = if (even) colorB else colorA; paint.alpha = (peak * 0.35f * 255).toInt()
+                    canvas.drawRect(w / 2, 0f, w, h, paint)
+                } else if (even) {
+                    paint.color = colorA; paint.alpha = (peak * 255).toInt()
+                    canvas.drawRect(0f, 0f, w, h, paint)
+                }
+            }
+            // Рамка: зліва/справа кольори мигалки.
+            paint.alpha = 230
+            paint.color = colorA; canvas.drawRect(0f, 0f, stroke, h, paint); canvas.drawRect(0f, 0f, w / 2, stroke, paint)
+            canvas.drawRect(0f, h - stroke, w / 2, h, paint)
+            paint.color = colorB; canvas.drawRect(w - stroke, 0f, w, h, paint); canvas.drawRect(w / 2, 0f, w, stroke, paint)
+            canvas.drawRect(w / 2, h - stroke, w, h, paint)
+
+            // Плашка на третині висоти — не закриває підказку повороту Waze угорі й кнопки внизу.
+            val title = "🚨 ${type.title}"
+            val pad = 16 * density
+            val tw = maxOf(titlePaint.measureText(title), subPaint.measureText(subtitle)) + 2 * pad
+            val ph = if (subtitle.isEmpty()) 48 * density else 72 * density
+            val top = h * 0.30f
+            rect.set((w - tw) / 2, top, (w + tw) / 2, top + ph)
+            pill.color = if (type == HazardType.POLICE) Color.parseColor("#0D2A6B") else AMBER
+            pill.alpha = 240
+            canvas.drawRoundRect(rect, 20 * density, 20 * density, pill)
+            val tc = if (type == HazardType.POLICE) Color.WHITE else Color.BLACK
+            titlePaint.color = tc; subPaint.color = tc
+            canvas.drawText(title, rect.centerX() - titlePaint.measureText(title) / 2, rect.top + 32 * density, titlePaint)
+            if (subtitle.isNotEmpty()) canvas.drawText(subtitle, rect.centerX() - subPaint.measureText(subtitle) / 2, rect.top + 58 * density, subPaint)
+        }
+
+        companion object {
+            const val PHASES = 8
+            val RED = Color.parseColor("#E53935")
+            val BLUE = Color.parseColor("#1E64FF")
+            val AMBER = Color.parseColor("#FFB300")
+        }
     }
 
     private class SignalView(ctx: Context) : View(ctx) {

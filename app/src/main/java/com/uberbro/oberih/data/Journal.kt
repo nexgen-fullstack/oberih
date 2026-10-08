@@ -72,33 +72,88 @@ object Journal {
 }
 
 /**
- * Зразки екранів Uber/Lyft (текст), щоб покращувати розпізнавання.
- * Лежать тільки на телефоні; водій сам вирішує, чи надіслати їх кнопкою «Поділитися».
+ * Зразки екранів Uber/Lyft/Waze: текст + скріншоти, щоб покращувати розпізнавання.
+ * Лежать тільки на телефоні; водій сам вирішує, чи надіслати їх (кнопка «Надіслати у WhatsApp»).
  */
 object ScreenSamples {
-    private const val MAX = 40
+    private const val MAX_TEXT = 40
+    private const val MAX_IMAGES = 30
+    private const val SEP = "\n\n=====\n"
 
-    private fun file(ctx: Context) = File(ctx.filesDir, "screen_samples.txt")
+    private fun textFile(ctx: Context) = File(ctx.filesDir, "screen_samples.txt")
+    fun imagesDir(ctx: Context) = File(ctx.filesDir, "samples").apply { mkdirs() }
+
+    private fun stamp(pattern: String) =
+        java.text.SimpleDateFormat(pattern, java.util.Locale.US).format(java.util.Date())
 
     @Synchronized
     fun add(ctx: Context, app: String, recognized: Boolean, text: String) {
-        val f = file(ctx)
+        val f = textFile(ctx)
         val old = if (f.exists()) f.readText().split(SEP).filter { it.isNotBlank() } else emptyList()
         if (old.any { it.substringAfter('\n').trim() == text.trim() }) return
-        val header = "[${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date())}] " +
-            "$app — ${if (recognized) "розпізнано" else "НЕ розпізнано"}"
-        val all = (old + "$header\n$text").takeLast(MAX)
+        val header = "[${stamp("yyyy-MM-dd HH:mm:ss")}] $app — ${if (recognized) "розпізнано" else "НЕ розпізнано"}"
+        val all = (old + "$header\n$text").takeLast(MAX_TEXT)
         f.writeText(all.joinToString(SEP))
     }
 
+    /** Зберігає скріншот (зменшений, JPEG) і видаляє найстаріші понад 30 штук. */
+    @Synchronized
+    fun addImage(ctx: Context, bmp: android.graphics.Bitmap, tag: String) {
+        val dir = imagesDir(ctx)
+        val safe = tag.replace(Regex("[^A-Za-z0-9_-]"), "_").take(30)
+        File(dir, "${stamp("yyyyMMdd_HHmmss")}_$safe.jpg").outputStream().use {
+            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 72, it)
+        }
+        images(ctx).dropLast(MAX_IMAGES).forEach { it.delete() }
+    }
+
+    /** Від найновішого до найстарішого. */
+    fun images(ctx: Context): List<File> =
+        imagesDir(ctx).listFiles { f -> f.name.endsWith(".jpg") }?.sortedByDescending { it.name }.orEmpty()
+
     fun count(ctx: Context): Int {
-        val f = file(ctx)
+        val f = textFile(ctx)
         return if (f.exists()) f.readText().split(SEP).count { it.isNotBlank() } else 0
     }
 
-    fun read(ctx: Context): String = file(ctx).takeIf { it.exists() }?.readText().orEmpty()
+    fun read(ctx: Context): String = textFile(ctx).takeIf { it.exists() }?.readText().orEmpty()
 
-    fun clear(ctx: Context) { file(ctx).delete() }
+    @Synchronized
+    fun clear(ctx: Context) {
+        textFile(ctx).delete()
+        imagesDir(ctx).listFiles()?.forEach { it.delete() }
+    }
 
-    private const val SEP = "\n\n=====\n"
+    /**
+     * Готує все до відправки: скріншоти + текстовий файл. Відкриває WhatsApp (або вибір програми).
+     * Повертає false, якщо надсилати нічого.
+     */
+    fun share(ctx: Context, preferWhatsApp: Boolean): Boolean {
+        val dir = imagesDir(ctx)
+        val uris = ArrayList<android.net.Uri>()
+        val auth = ctx.packageName + ".files"
+        images(ctx).take(MAX_IMAGES).forEach { uris += androidx.core.content.FileProvider.getUriForFile(ctx, auth, it) }
+        val text = read(ctx)
+        if (text.isNotBlank()) {
+            val tf = File(dir, "oberih_screens.txt").apply { writeText(text) }
+            uris += androidx.core.content.FileProvider.getUriForFile(ctx, auth, tf)
+        }
+        if (uris.isEmpty()) return false
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).apply {
+            type = if (text.isBlank()) "image/jpeg" else "*/*"
+            putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
+            putExtra(android.content.Intent.EXTRA_TEXT, "Оберіг: зразки екранів для покращення (${uris.size} файлів)")
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        if (preferWhatsApp) {
+            for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
+                val ok = runCatching {
+                    ctx.startActivity(android.content.Intent(intent).setPackage(pkg).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                }.isSuccess
+                if (ok) return true
+            }
+        }
+        ctx.startActivity(android.content.Intent.createChooser(intent, "Надіслати зразки").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        return true
+    }
 }

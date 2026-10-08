@@ -61,6 +61,8 @@ import com.uberbro.oberih.BuildConfig
 import com.uberbro.oberih.data.CrimeRepository
 import com.uberbro.oberih.data.Level
 import com.uberbro.oberih.data.Prefs
+import com.uberbro.oberih.hazard.HazardType
+import com.uberbro.oberih.hazard.Stage
 import com.uberbro.oberih.service.OberihAccessibilityService
 import com.uberbro.oberih.service.Speaker
 import com.uberbro.oberih.util.UpdateChecker
@@ -147,6 +149,16 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int) {
     }
     var update by remember { mutableStateOf(UpdateChecker.cached(Prefs(ctx))) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    var sosBusy by remember { mutableStateOf(false) }
+    fun sendSos() {
+        sosBusy = true
+        scope.launch {
+            val loc = runCatching { com.uberbro.oberih.util.Sos.location(ctx) }.getOrNull()
+            com.uberbro.oberih.util.Sos.send(ctx, Prefs(ctx).sosNumber, loc)
+            sosBusy = false
+        }
+    }
+    val locLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { sendSos() }
 
     // Тестовий голос працює навіть без увімкненого сервісу.
     val testSpeaker = remember { Speaker(ctx) }
@@ -159,7 +171,7 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int) {
 
     LaunchedEffect(Unit) {
         val g = CrimeRepository.load(ctx)
-        if (CrimeRepository.isStale(g)) { dataError = CrimeRepository.refresh(ctx) }
+        if (CrimeRepository.isStale(g)) { dataError = CrimeRepository.refreshIfStale(ctx) }
         update = runCatching { UpdateChecker.check(ctx) }.getOrNull()
     }
 
@@ -173,11 +185,27 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int) {
                     Text(if (ready) "🛡 Оберіг працює" else "⚠ Оберіг ще не готовий", fontSize = 24.sp,
                         fontWeight = FontWeight.Bold, color = Color.White)
                     Text(
-                        if (ready) "Просто працюй в Uber чи Lyft. Коли прийде замовлення — екран блимне кольором, і ти почуєш підказку."
+                        if (ready) "Просто працюй в Uber чи Lyft. Коли прийде замовлення — екран блимне кольором, і ти почуєш підказку. Коли Waze покаже поліцію чи аварію — увімкнеться мигалка і голос."
                         else "Виконай кроки нижче (з червоним знаком). Це потрібно зробити лише один раз.",
                         color = Color.White, fontSize = 15.sp, modifier = Modifier.padding(top = 6.dp))
                 }
             }
+        }
+        item {
+            Button(
+                onClick = {
+                    val granted = ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
+                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (granted) sendSos()
+                    else locLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                },
+                enabled = !sosBusy,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828), contentColor = Color.White),
+                modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(18.dp),
+            ) {
+                Text(if (sosBusy) "Визначаю місце…" else "🆘 SOS — надіслати своє місце", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+            if (Prefs(ctx).sosNumber.isBlank()) Hint("Номер для SOS вкажи в Налаштуваннях (тоді відкриється одразу WhatsApp цієї людини).")
         }
         update?.let { u ->
             item {
@@ -216,7 +244,7 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int) {
                     OutlinedButton(onClick = {
                         ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
                     }, modifier = Modifier.fillMaxWidth()) { Text("Відкрити сторінку програми") }
-                } else Hint("Готово. Оберіг бачить тільки екрани Uber Driver і Lyft Driver.")
+                } else Hint("Готово. Оберіг бачить тільки екрани Uber Driver, Lyft Driver, Waze і Google Maps.")
             }
         }
         item {
@@ -278,15 +306,32 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int) {
                         }
                     }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = {
+                        OberihAccessibilityService.instance?.demoHazard(HazardType.POLICE, 1800.0, Stage.FAR)
+                            ?: Toast.makeText(ctx, "Спершу виконай крок 2 (Спеціальні можливості)", Toast.LENGTH_LONG).show()
+                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E64FF), contentColor = Color.White),
+                        modifier = Modifier.weight(1f).height(52.dp)) { Text("🚨 Поліція", fontWeight = FontWeight.Bold) }
+                    Button(onClick = {
+                        OberihAccessibilityService.instance?.demoHazard(HazardType.CRASH, 700.0, Stage.FAR)
+                            ?: Toast.makeText(ctx, "Спершу виконай крок 2 (Спеціальні можливості)", Toast.LENGTH_LONG).show()
+                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB300), contentColor = Color.Black),
+                        modifier = Modifier.weight(1f).height(52.dp)) { Text("⚠ Аварія", fontWeight = FontWeight.Bold) }
+                }
                 Button(onClick = { ctx.startActivity(Intent(ctx, DemoOfferActivity::class.java)) },
-                    modifier = Modifier.fillMaxWidth()) { Text("Повна перевірка: імітація замовлення") }
-                Hint("Відкриє екран, схожий на замовлення Uber, і Оберіг відреагує на нього як на справжнє.")
+                    modifier = Modifier.fillMaxWidth()) { Text("Повна перевірка: імітація Uber і Waze") }
+                Hint("Відкриє екрани, схожі на замовлення Uber і попередження Waze, — Оберіг відреагує на них як на справжні.")
             }
         }
         item {
             SectionCard {
-                Text("Порада: навігація", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Hint("У Uber Driver: Меню → Account → App Settings → Navigation → Waze.\nУ Lyft Driver: Меню → Settings → Navigation → Waze.\nУ Waze: Settings → Alerts & reports → Police — увімкнено. Тоді Waze сам попереджатиме про поліцію, аварії й перекриття.")
+                Text("Waze: поліція й аварії", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Hint("Оберіг бере попередження про поліцію й аварії з екрана Waze (або Google Maps) і повторює їх мигалкою та голосом: одразу, як Waze їх покаже, і ще раз ближче до місця.\n\n" +
+                    "Щоб це працювало:\n" +
+                    "• У Uber Driver: Меню → Account → App Settings → Navigation → Waze.\n" +
+                    "• У Lyft Driver: Меню → Settings → Navigation → Waze.\n" +
+                    "• У Waze: Settings → Alerts & reports → Police, Crash, Hazards — увімкнено.\n" +
+                    "• Waze має бути відкритий на екрані телефону (з Android Auto в машині Оберіг попереджень не бачить).")
             }
         }
         item { Hint("Оберіг ${BuildConfig.VERSION_NAME} · дані: Chicago Data Portal") }

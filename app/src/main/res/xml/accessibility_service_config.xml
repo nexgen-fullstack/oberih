@@ -4,7 +4,8 @@
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagRetrieveInteractiveWindows|flagIncludeNotImportantViews|flagReportViewIds"
     android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
     android:description="@string/a11y_description"
     android:notificationTimeout="120"
-    android:packageNames="com.ubercab.driver,com.lyft.android.driver,com.uberbro.oberih"
+    android:packageNames="com.ubercab.driver,com.lyft.android.driver,com.waze,com.google.android.apps.maps,com.uberbro.oberih"
     android:settingsActivity="com.uberbro.oberih.ui.MainActivity" />
