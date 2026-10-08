@@ -69,6 +69,9 @@ class OberihAccessibilityService : AccessibilityService() {
     private lateinit var overlay: AlertOverlay
     private lateinit var speaker: Speaker
     private lateinit var prefs: Prefs
+    private lateinit var live: LiveZones
+    private var lastDiagAt = 0L
+    private var lastDiagHash = 0
 
     private var firstPendingAt = 0L
     private var lastSource: AccessibilityNodeInfo? = null
@@ -91,6 +94,7 @@ class OberihAccessibilityService : AccessibilityService() {
         prefs = Prefs(this)
         overlay = AlertOverlay(this)
         speaker = Speaker(this)
+        live = LiveZones(this, overlay, speaker, prefs, scope)
         instance = this
         _running.value = true
         scope.launch { CrimeRepository.load(this@OberihAccessibilityService) }
@@ -100,6 +104,7 @@ class OberihAccessibilityService : AccessibilityService() {
         val pkg = e?.packageName?.toString() ?: return
         if (pkg !in WATCHED && pkg != packageName) return
         if (pkg != packageName) runCatching { lastSource = e.source }
+        if (pkg == UBER || pkg == LYFT || (com.uberbro.oberih.BuildConfig.DEBUG && pkg == packageName)) live.onDriverAppActive()
         val now = SystemClock.uptimeMillis()
         if (firstPendingAt == 0L) firstPendingAt = now
         handler.removeCallbacks(scanRunnable)
@@ -125,7 +130,7 @@ class OberihAccessibilityService : AccessibilityService() {
             val offer = OfferParser.parse(app, items.filter { it.text != DEMO_MARKER }, h)
             val text = items.joinToString("\n") { it.text }
             if (offer != null) { found = offer; foundText = text; break }
-            if (pkg != packageName) maybeSample(app, false, text)
+            if (pkg != packageName) { maybeSample(app, false, text); diagnostic(app, text) }
         }
         val now = SystemClock.uptimeMillis()
         if (found != null) {
@@ -164,6 +169,27 @@ class OberihAccessibilityService : AccessibilityService() {
         lastSampleAt = now
         scope.launch(Dispatchers.IO) { runCatching { ScreenSamples.add(applicationContext, app, recognized, text) } }
         captureScreen("${app}_${if (recognized) "ok" else "NOT"}")
+    }
+
+    /**
+     * Діагностика: поки ми не бачили справжніх екранів Uber/Lyft, зберігаємо зразок кожного НОВОГО екрана
+     * (не частіше ніж раз на 20 с). Так стане видно, як виглядає замовлення, якщо Оберіг його не впізнав.
+     */
+    private fun diagnostic(app: String, text: String) {
+        if (!prefs.collectScreens || text.length < 20) return
+        val now = SystemClock.uptimeMillis()
+        val h = text.hashCode()
+        if (h == lastDiagHash || now - lastDiagAt < 20_000) return
+        lastDiagHash = h; lastDiagAt = now
+        scope.launch(Dispatchers.IO) { runCatching { ScreenSamples.add(applicationContext, "$app-diag", false, text) } }
+        captureScreen("${app}_diag")
+    }
+
+    /** Для кнопки «Перевірити живу зону». */
+    fun demoZone(level: Level) {
+        overlay.showZone(level, "попереду · Englewood", com.uberbro.oberih.util.SunTimes.isNight(), prefs.flashMode)
+        if (prefs.voiceOn) speaker.speak(Phrases.zoneAhead(level, false, speaker.effectiveLang(prefs.voiceLang)),
+            speaker.effectiveLang(prefs.voiceLang))
     }
 
     // ---------- Поліція та небезпеки з екрана Waze / Google Maps ----------
@@ -346,6 +372,7 @@ class OberihAccessibilityService : AccessibilityService() {
         instance = null
         _running.value = false
         handler.removeCallbacksAndMessages(null)
+        if (::live.isInitialized) live.stop()
         if (::overlay.isInitialized) overlay.hideAll()
         if (::speaker.isInitialized) speaker.shutdown()
         scope.cancel()

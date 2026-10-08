@@ -8,6 +8,8 @@
     <!-- Тільки для кнопки SOS: надіслати своє місце рідним. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Живі зони: GPS під час поїздки, коли на екрані Uber/Lyft, а не Оберіг. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <!-- Тільки для SOS: надіслати SMS усім довіреним людям одним натисканням. -->
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />

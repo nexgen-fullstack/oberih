@@ -338,6 +338,11 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, startWizard: () -> Unit = {}
                     }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB300), contentColor = Color.Black),
                         modifier = Modifier.weight(1f).height(52.dp)) { Text("⚠ Аварія", fontWeight = FontWeight.Bold) }
                 }
+                Button(onClick = {
+                    OberihAccessibilityService.instance?.demoZone(Level.RED)
+                        ?: Toast.makeText(ctx, "Спершу виконай крок 2 (Спеціальні можливості)", Toast.LENGTH_LONG).show()
+                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935), contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth()) { Text("Перевірити живу зону (червона попереду)") }
                 Button(onClick = { ctx.startActivity(Intent(ctx, DemoOfferActivity::class.java)) },
                     modifier = Modifier.fillMaxWidth()) { Text("Повна перевірка: імітація Uber і Waze") }
                 Hint("Відкриє екрани, схожі на замовлення Uber і попередження Waze, — Оберіг відреагує на них як на справжні.")

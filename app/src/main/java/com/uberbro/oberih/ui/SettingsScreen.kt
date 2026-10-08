@@ -56,6 +56,7 @@ fun SettingsScreen(modifier: Modifier) {
     var flash by remember { mutableStateOf(prefs.flashMode) }
     var sens by remember { mutableStateOf(prefs.sensitivity) }
     var police by remember { mutableStateOf(prefs.policeAlerts) }
+    var liveOn by remember { mutableStateOf(prefs.liveZones) }
     var road by remember { mutableStateOf(prefs.roadAlerts) }
     var near by remember { mutableStateOf(prefs.nearMeters) }
     var unit by remember { mutableStateOf(prefs.distanceUnit) }
@@ -81,7 +82,13 @@ fun SettingsScreen(modifier: Modifier) {
             Hint("«Весь екран» — 3 кольорові спалахи, потім рамка. «Тільки рамка» — менше відволікає. Вночі спалах автоматично м'якший. Дотики завжди проходять крізь сигнал.")
         }
 
-        SectionTitle("ПОЛІЦІЯ Й АВАРІЇ (З ЕКРАНА WAZE)")
+        SectionTitle("ЖИВІ ЗОНИ ПІД ЧАС ПОЇЗДКИ")
+        SectionCard {
+            SwitchRow("Попереджати про зону попереду (GPS)", liveOn) { liveOn = it; prefs.liveZones = it }
+            Hint("Поки відкритий Uber чи Lyft, Оберіг дивиться на GPS і за ~400 м до червоної, помаранчевої чи жовтої зони блимає кольором і каже голосом. Працює з навігацією Uber, Lyft чи будь-якою іншою. Потрібен дозвіл місця «Дозволяти завжди».")
+        }
+
+        SectionTitle("ПОЛІЦІЯ Й АВАРІЇ (ЯКЩО ВІДКРИТИЙ WAZE)")
         SectionCard {
             SwitchRow("🚨 Попереджати про поліцію", police) { police = it; prefs.policeAlerts = it }
             SwitchRow("⚠ Аварії, перекриття, небезпеки", road) { road = it; prefs.roadAlerts = it }

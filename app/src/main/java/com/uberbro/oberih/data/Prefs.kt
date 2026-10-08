@@ -59,6 +59,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("policeAlerts", true)
         set(v) = sp.edit { putBoolean("policeAlerts", v) }
 
+    /** Живі зони під час поїздки (за GPS). */
+    var liveZones: Boolean
+        get() = sp.getBoolean("liveZones", true)
+        set(v) = sp.edit { putBoolean("liveZones", v) }
+
     /** Попередження про аварії, перекриття, небезпеки. */
     var roadAlerts: Boolean
         get() = sp.getBoolean("roadAlerts", true)

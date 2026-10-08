@@ -55,7 +55,8 @@ private enum class Step(val title: String) {
     RESTRICTED("Дозволити обмежені налаштування"),
     BATTERY("Робота без перерв"),
     NOTIFY("Сповіщення про оновлення"),
-    LOCATION("Місце для SOS"),
+    LOCATION("Місце для SOS і живих зон"),
+    BG_LOCATION("Місце: «Дозволяти завжди»"),
     SMS("SMS для SOS"),
     VOICE("Український голос"),
     DONE("Готово!"),
@@ -108,7 +109,8 @@ fun SetupWizard(resumeTick: Int, resumed: Boolean, onFinish: (openDemo: Boolean,
             Step.RESTRICTED -> Step.A11Y
             Step.BATTERY -> if (Build.VERSION.SDK_INT >= 33) Step.NOTIFY else Step.LOCATION
             Step.NOTIFY -> Step.LOCATION
-            Step.LOCATION -> Step.SMS
+            Step.LOCATION -> if (Build.VERSION.SDK_INT >= 29) Step.BG_LOCATION else Step.SMS
+            Step.BG_LOCATION -> Step.SMS
             Step.SMS -> Step.VOICE
             Step.VOICE -> Step.DONE
             Step.DONE -> Step.DONE
@@ -121,6 +123,7 @@ fun SetupWizard(resumeTick: Int, resumed: Boolean, onFinish: (openDemo: Boolean,
         Step.BATTERY -> isIgnoringBattery(ctx)
         Step.NOTIFY -> Build.VERSION.SDK_INT < 33 || granted(ctx, Manifest.permission.POST_NOTIFICATIONS)
         Step.LOCATION -> granted(ctx, Manifest.permission.ACCESS_FINE_LOCATION)
+        Step.BG_LOCATION -> Build.VERSION.SDK_INT < 29 || granted(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         Step.SMS -> granted(ctx, Manifest.permission.SEND_SMS) ||
             !ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY)
         Step.VOICE -> speaker.ukrainianMissing == false
@@ -139,6 +142,7 @@ fun SetupWizard(resumeTick: Int, resumed: Boolean, onFinish: (openDemo: Boolean,
             }.onFailure { next() }
             Step.NOTIFY -> permLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
             Step.LOCATION -> permLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            Step.BG_LOCATION -> permLauncher.launch(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
             Step.SMS -> permLauncher.launch(arrayOf(Manifest.permission.SEND_SMS))
             Step.VOICE -> runCatching { ctx.startActivity(Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) }.onFailure { next() }
             Step.DONE -> {}
@@ -169,6 +173,7 @@ fun SetupWizard(resumeTick: Int, resumed: Boolean, onFinish: (openDemo: Boolean,
                 else if (a11yTries in 1..2 && Build.VERSION.SDK_INT >= 33) { restrictedOpened = false; step = Step.RESTRICTED }
             Step.RESTRICTED -> if (running) step = Step.BATTERY else if (restrictedOpened) step = Step.A11Y
             Step.BATTERY -> if (isIgnoringBattery(ctx)) next()
+            Step.BG_LOCATION -> if (granted(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION)) next()
             Step.VOICE -> if (speaker.ukrainianMissing == false) next()
             else -> {}
         }
@@ -200,7 +205,10 @@ fun SetupWizard(resumeTick: Int, resumed: Boolean, onFinish: (openDemo: Boolean,
                     "2. «Дозволити обмежені налаштування» (підтвердь відбитком/PIN).\n3. Повернись сюди — я знову відкрию Спеціальні можливості."
                 Step.BATTERY -> "Зараз з'явиться запит — натисни «Дозволити». Тоді телефон не вимикатиме Оберіг під час зміни."
                 Step.NOTIFY -> "Зараз з'явиться запит — натисни «Дозволити». Так телефон скаже, коли вийде нова версія."
-                Step.LOCATION -> "Зараз з'явиться запит — обери «Під час використання програми». Місце потрібне тільки для кнопки SOS."
+                Step.LOCATION -> "Зараз з'явиться запит — обери «Під час використання програми». Місце потрібне для SOS і для живих зон під час поїздки."
+                Step.BG_LOCATION -> "Зараз відкриється сторінка дозволу місця — обери «Дозволяти завжди» (Allow all the time) і повернись кнопкою «Назад».\n\n" +
+                    "Це потрібно, щоб під час поїздки в Uber чи Lyft Оберіг бачив, куди ти їдеш, і заздалегідь попереджав про червону чи жовту зону. " +
+                    "GPS працює тільки коли відкритий Uber або Lyft."
                 Step.SMS -> "Зараз з'явиться запит — натисни «Дозволити». Тоді SOS одним натисканням надішле SMS усім твоїм людям."
                 Step.VOICE -> "На телефоні немає українського голосу. Зараз відкриється налаштування голосу: обери «Українська» і завантаж. " +
                     "(Можна пропустити — тоді підказки будуть англійською.)"

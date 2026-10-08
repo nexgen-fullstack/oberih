@@ -59,6 +59,17 @@ class AlertOverlay(private val ctx: Context) {
         scheduleAutoHide(25_000)
     }
 
+    /** Живі зони: спалах кольором зони, в яку в'їжджає машина, плашка ~6 с. */
+    fun showZone(level: Level, subtitle: String, night: Boolean, mode: FlashMode) {
+        val v = ensureView()
+        v.set(level.colorInt, level.title.uppercase(), subtitle, level == Level.YELLOW)
+        shownAt = SystemClock.uptimeMillis()
+        v.flash(mode, if (night) 0.30f else 0.42f)
+        handler.removeCallbacks(deferredHide)
+        handler.removeCallbacks(autoHide)
+        handler.postDelayed(autoHide, 6_500)
+    }
+
     /** Ховає сигнал, але не раніше ніж через [minVisibleMs] після показу вердикту. */
     fun hide(minVisibleMs: Long = 4_000) {
         if (view == null) return
