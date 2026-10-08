@@ -55,11 +55,7 @@ fun SettingsScreen(modifier: Modifier) {
     var speakProfit by remember { mutableStateOf(prefs.speakProfit) }
     var flash by remember { mutableStateOf(prefs.flashMode) }
     var sens by remember { mutableStateOf(prefs.sensitivity) }
-    var police by remember { mutableStateOf(prefs.policeAlerts) }
     var liveOn by remember { mutableStateOf(prefs.liveZones) }
-    var road by remember { mutableStateOf(prefs.roadAlerts) }
-    var near by remember { mutableStateOf(prefs.nearMeters) }
-    var unit by remember { mutableStateOf(prefs.distanceUnit) }
     var screens by remember { mutableStateOf(prefs.collectScreens) }
     val contacts = remember { mutableStateListOf<SosContact>().apply { addAll(prefs.sosContacts) } }
     var driver by remember { mutableStateOf(prefs.driverName) }
@@ -86,17 +82,6 @@ fun SettingsScreen(modifier: Modifier) {
         SectionCard {
             SwitchRow("Попереджати про зону попереду (GPS)", liveOn) { liveOn = it; prefs.liveZones = it }
             Hint("Поки відкритий Uber чи Lyft, Оберіг дивиться на GPS і за ~400 м до червоної, помаранчевої чи жовтої зони блимає кольором і каже голосом. Працює з навігацією Uber, Lyft чи будь-якою іншою. Потрібен дозвіл місця «Дозволяти завжди».")
-        }
-
-        SectionTitle("ПОЛІЦІЯ Й АВАРІЇ (ЯКЩО ВІДКРИТИЙ WAZE)")
-        SectionCard {
-            SwitchRow("🚨 Попереджати про поліцію", police) { police = it; prefs.policeAlerts = it }
-            SwitchRow("⚠ Аварії, перекриття, небезпеки", road) { road = it; prefs.roadAlerts = it }
-            Text("Повторне попередження, коли до місця лишилось:")
-            Segments(listOf(300, 500, 800, 1000), near, { if (it < 1000) "$it м" else "1 км" }) { near = it; prefs.nearMeters = it }
-            Text("Відстань казати в")
-            Segments(DistanceUnit.entries, unit, { it.label }) { unit = it; prefs.distanceUnit = it }
-            Hint("Перше попередження — одразу, як Waze покаже поліцію чи аварію (зазвичай за 1–2 км). Друге — ближче до місця.")
         }
 
         SectionTitle("SOS")
@@ -156,7 +141,7 @@ fun SettingsScreen(modifier: Modifier) {
 
         SectionTitle("ЗРАЗКИ ЕКРАНІВ")
         SectionCard {
-            SwitchRow("Автоматично зберігати скріншоти Uber/Lyft/Waze", screens) { screens = it; prefs.collectScreens = it }
+            SwitchRow("Автоматично зберігати скріншоти Uber/Lyft", screens) { screens = it; prefs.collectScreens = it }
             Hint("Потрібно, щоб покращувати розпізнавання. Скріншоти лежать тільки на телефоні (до 30 штук). Надіслати їх можна з Журналу кнопкою «Надіслати у WhatsApp». Працює на Android 11 і новіших.")
         }
 

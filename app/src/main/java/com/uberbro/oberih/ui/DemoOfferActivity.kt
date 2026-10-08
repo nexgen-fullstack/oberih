@@ -79,11 +79,11 @@ class DemoOfferActivity : ComponentActivity() {
                     Text("Повна перевірка", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Text(
                         if (OberihAccessibilityService.instance == null) "⚠ Оберіг вимкнений у Спеціальних можливостях — сигналу не буде."
-                        else "Обери варіант: через секунду екран блимне і прозвучить підказка. Для поліції спершу «1.2 mi», потім «0.2 mi» — почуєш друге попередження.",
+                        else "Обери варіант: через секунду екран блимне і прозвучить підказка.",
                         color = Color(0xFFCFD8DC), fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp),
                     )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 10.dp)) {
-                        (offers.map { it.name } + navs.map { it.name }).forEachIndexed { k, name ->
+                        offers.map { it.name }.forEachIndexed { k, name ->
                             OutlinedButton(onClick = { i = k }) { Text(name, fontSize = 12.sp) }
                         }
                     }

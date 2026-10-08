@@ -50,11 +50,10 @@ class OberihAccessibilityService : AccessibilityService() {
         private const val TAG = "Oberih"
         const val UBER = "com.ubercab.driver"
         const val LYFT = "com.lyft.android.driver"
-        const val WAZE = "com.waze"
-        const val GMAPS = "com.google.android.apps.maps"
         const val DEMO_MARKER = "OBERIH_DEMO_OFFER"
         const val DEMO_NAV_MARKER = "OBERIH_DEMO_NAV"
-        private val WATCHED = setOf(UBER, LYFT, WAZE, GMAPS)
+        // Тільки Uber і Lyft: інші програми (Waze, карти тощо) Оберіг не читає.
+        private val WATCHED = setOf(UBER, LYFT)
 
         private val _running = MutableStateFlow(false)
         val running: StateFlow<Boolean> = _running
@@ -109,9 +108,7 @@ class OberihAccessibilityService : AccessibilityService() {
         if (firstPendingAt == 0L) firstPendingAt = now
         handler.removeCallbacks(scanRunnable)
         // Чекаємо, поки екран «заспокоїться», але не довше ~0,7 с від першої зміни.
-        var delay = if (now - firstPendingAt > 700) 0L else 220L
-        // Карта Waze змінюється безперервно — її читаємо не частіше ніж раз на 0,8 с (економія батареї).
-        if (pkg == WAZE || pkg == GMAPS) delay = maxOf(delay, 800 - (now - lastScanAt))
+        val delay = if (now - firstPendingAt > 700) 0L else 220L
         handler.postDelayed(scanRunnable, delay)
     }
 
@@ -124,7 +121,7 @@ class OberihAccessibilityService : AccessibilityService() {
         var foundText = ""
         for ((pkg, items) in captured) {
             val demoNav = pkg == packageName && items.any { it.text == DEMO_NAV_MARKER }
-            if (pkg == WAZE || pkg == GMAPS || demoNav) { checkHazards(pkg, items, demoNav); continue }
+            if (demoNav) { checkHazards(pkg, items, true); continue }
             if (pkg == packageName && items.none { it.text == DEMO_MARKER }) continue
             val app = when (pkg) { UBER -> "Uber"; LYFT -> "Lyft"; else -> "Демо" }
             val offer = OfferParser.parse(app, items.filter { it.text != DEMO_MARKER }, h)
@@ -201,7 +198,7 @@ class OberihAccessibilityService : AccessibilityService() {
         val sightings = HazardParser.parse(clean).filter {
             if (it.type == HazardType.POLICE) prefs.policeAlerts else prefs.roadAlerts
         }
-        val app = when (pkg) { WAZE -> "Waze"; GMAPS -> "GoogleMaps"; else -> "Демо" }
+        val app = "Демо"
         // Зразок для покращення: раз на 30 с на кожен тип — і для розпізнаних, і для нерозпізнаних.
         if (!demo) {
             val key = sightings.firstOrNull()?.type?.name ?: "unknown"

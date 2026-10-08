@@ -224,7 +224,7 @@ fun SetupWizard(resumeTick: Int, resumed: Boolean, onFinish: (openDemo: Boolean,
                     Text("🆘 Додати людей для SOS", fontSize = 17.sp)
                 }
                 Button(onClick = { prefs.setupDone = true; onFinish(true, false) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
-                    Text("▶ Перевірити (імітація замовлення і Waze)", fontSize = 16.sp)
+                    Text("▶ Перевірити (імітація замовлення)", fontSize = 16.sp)
                 }
                 TextButton(onClick = { prefs.setupDone = true; onFinish(false, false) }) { Text("На головну") }
             }

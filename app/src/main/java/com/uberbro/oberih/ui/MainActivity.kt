@@ -199,7 +199,7 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, startWizard: () -> Unit = {}
                     Text(if (ready) "🛡 Оберіг працює" else "⚠ Оберіг ще не готовий", fontSize = 24.sp,
                         fontWeight = FontWeight.Bold, color = Color.White)
                     Text(
-                        if (ready) "Просто працюй в Uber чи Lyft. Коли прийде замовлення — екран блимне кольором, і ти почуєш підказку. Коли Waze покаже поліцію чи аварію — увімкнеться мигалка і голос."
+                        if (ready) "Просто працюй в Uber чи Lyft. Коли прийде замовлення — екран блимне кольором, і ти почуєш підказку. Під час поїздки перед небезпечною зоною екран блимне і голос попередить."
                         else "Виконай кроки нижче (з червоним знаком). Це потрібно зробити лише один раз.",
                         color = Color.White, fontSize = 15.sp, modifier = Modifier.padding(top = 6.dp))
                 }
@@ -264,7 +264,7 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, startWizard: () -> Unit = {}
                     OutlinedButton(onClick = {
                         ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
                     }, modifier = Modifier.fillMaxWidth()) { Text("Відкрити сторінку програми") }
-                } else Hint("Готово. Оберіг бачить тільки екрани Uber Driver, Lyft Driver, Waze і Google Maps.")
+                } else Hint("Готово. Оберіг бачить тільки екрани Uber Driver і Lyft Driver.")
             }
         }
         item {
@@ -326,37 +326,14 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int, startWizard: () -> Unit = {}
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Button(onClick = {
-                        OberihAccessibilityService.instance?.demoHazard(HazardType.POLICE, 1800.0, Stage.FAR)
-                            ?: Toast.makeText(ctx, "Спершу виконай крок 2 (Спеціальні можливості)", Toast.LENGTH_LONG).show()
-                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E64FF), contentColor = Color.White),
-                        modifier = Modifier.weight(1f).height(52.dp)) { Text("🚨 Поліція", fontWeight = FontWeight.Bold) }
-                    Button(onClick = {
-                        OberihAccessibilityService.instance?.demoHazard(HazardType.CRASH, 700.0, Stage.FAR)
-                            ?: Toast.makeText(ctx, "Спершу виконай крок 2 (Спеціальні можливості)", Toast.LENGTH_LONG).show()
-                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB300), contentColor = Color.Black),
-                        modifier = Modifier.weight(1f).height(52.dp)) { Text("⚠ Аварія", fontWeight = FontWeight.Bold) }
-                }
                 Button(onClick = {
                     OberihAccessibilityService.instance?.demoZone(Level.RED)
                         ?: Toast.makeText(ctx, "Спершу виконай крок 2 (Спеціальні можливості)", Toast.LENGTH_LONG).show()
                 }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935), contentColor = Color.White),
                     modifier = Modifier.fillMaxWidth()) { Text("Перевірити живу зону (червона попереду)") }
                 Button(onClick = { ctx.startActivity(Intent(ctx, DemoOfferActivity::class.java)) },
-                    modifier = Modifier.fillMaxWidth()) { Text("Повна перевірка: імітація Uber і Waze") }
-                Hint("Відкриє екрани, схожі на замовлення Uber і попередження Waze, — Оберіг відреагує на них як на справжні.")
-            }
-        }
-        item {
-            SectionCard {
-                Text("Waze: поліція й аварії", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Hint("Оберіг бере попередження про поліцію й аварії з екрана Waze (або Google Maps) і повторює їх мигалкою та голосом: одразу, як Waze їх покаже, і ще раз ближче до місця.\n\n" +
-                    "Щоб це працювало:\n" +
-                    "• У Uber Driver: Меню → Account → App Settings → Navigation → Waze.\n" +
-                    "• У Lyft Driver: Меню → Settings → Navigation → Waze.\n" +
-                    "• У Waze: Settings → Alerts & reports → Police, Crash, Hazards — увімкнено.\n" +
-                    "• Waze має бути відкритий на екрані телефону (з Android Auto в машині Оберіг попереджень не бачить).")
+                    modifier = Modifier.fillMaxWidth()) { Text("Повна перевірка: імітація Uber") }
+                Hint("Відкриє екрани, схожі на замовлення Uber, — Оберіг відреагує на них як на справжні.")
             }
         }
         item { Hint("Оберіг ${BuildConfig.VERSION_NAME} · дані: Chicago Data Portal") }
