@@ -77,7 +77,7 @@ object Journal {
  */
 object ScreenSamples {
     private const val MAX_TEXT = 40
-    private const val MAX_IMAGES = 30
+    private const val MAX_IMAGES = 20
     private const val SEP = "\n\n=====\n"
 
     private fun textFile(ctx: Context) = File(ctx.filesDir, "screen_samples.txt")
@@ -102,7 +102,7 @@ object ScreenSamples {
         val dir = imagesDir(ctx)
         val safe = tag.replace(Regex("[^A-Za-z0-9_-]"), "_").take(30)
         File(dir, "${stamp("yyyyMMdd_HHmmss")}_$safe.jpg").outputStream().use {
-            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 72, it)
+            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 65, it)
         }
         images(ctx).dropLast(MAX_IMAGES).forEach { it.delete() }
     }
@@ -110,6 +110,10 @@ object ScreenSamples {
     /** Від найновішого до найстарішого. */
     fun images(ctx: Context): List<File> =
         imagesDir(ctx).listFiles { f -> f.name.endsWith(".jpg") }?.sortedByDescending { it.name }.orEmpty()
+
+    /** Скільки місця займає папка зразків, байт. */
+    fun sizeBytes(ctx: Context): Long =
+        (imagesDir(ctx).listFiles()?.sumOf { it.length() } ?: 0L) + textFile(ctx).let { if (it.exists()) it.length() else 0L }
 
     fun count(ctx: Context): Int {
         val f = textFile(ctx)

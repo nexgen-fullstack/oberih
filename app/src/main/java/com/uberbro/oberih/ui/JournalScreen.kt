@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -20,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,6 +49,16 @@ fun JournalScreen(modifier: Modifier) {
     val entries by Journal.entries.collectAsState()
     var samples by remember { mutableIntStateOf(ScreenSamples.count(ctx)) }
     var shots by remember { mutableIntStateOf(ScreenSamples.images(ctx).size) }
+    var sizeMb by remember { mutableStateOf(ScreenSamples.sizeBytes(ctx) / 1_048_576.0) }
+    var askClear by remember { mutableStateOf(false) }
+    fun clearSamples() { ScreenSamples.clear(ctx); samples = 0; shots = 0; sizeMb = 0.0 }
+    if (askClear) AlertDialog(
+        onDismissRequest = { askClear = false },
+        title = { Text("Надіслав?") },
+        text = { Text("Очистити папку зі скріншотами, щоб не займала пам'ять телефону (${"%.1f".format(sizeMb)} МБ)?") },
+        confirmButton = { Button(onClick = { clearSamples(); askClear = false }) { Text("Так, очистити") } },
+        dismissButton = { TextButton(onClick = { askClear = false }) { Text("Ні, залишити") } },
+    )
     val startOfDay = remember {
         Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }.timeInMillis
     }
@@ -82,16 +95,17 @@ fun JournalScreen(modifier: Modifier) {
         item {
             SectionCard {
                 Text("Зразки екранів для покращення", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Hint("Скріншотів: $shots · текстових зразків: $samples.\nОберіг сам знімає екрани замовлень Uber/Lyft і попереджень Waze. Раз на кілька днів надсилай їх розробнику — так програма краще розпізнаватиме замовлення й поліцію. На скріншотах можуть бути адреси пасажирів, тому надсилай тільки своїм.")
+                Hint("Скріншотів: $shots · текстових зразків: $samples · займає ${"%.1f".format(sizeMb)} МБ (не більше ~1,5 МБ: старі видаляються самі).\nОберіг сам знімає екрани замовлень Uber/Lyft і попереджень Waze. Раз на кілька днів надсилай їх розробнику — так програма краще розпізнаватиме замовлення й поліцію. На скріншотах можуть бути адреси пасажирів, тому надсилай тільки своїм.")
                 Button(onClick = {
                     if (!ScreenSamples.share(ctx, preferWhatsApp = true))
                         android.widget.Toast.makeText(ctx, "Зразків поки немає — вони з'являться під час роботи", android.widget.Toast.LENGTH_LONG).show()
+                    else askClear = true
                 }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366), contentColor = Color.White),
                     modifier = Modifier.fillMaxWidth()) { Text("Надіслати у WhatsApp", fontWeight = FontWeight.Bold) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { ScreenSamples.share(ctx, preferWhatsApp = false) }) { Text("Інший спосіб") }
-                    OutlinedButton(onClick = { ScreenSamples.clear(ctx); samples = 0; shots = 0 }) { Text("Очистити") }
-                }
+                Button(onClick = { clearSamples() }, enabled = shots + samples > 0,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF455A64), contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth()) { Text("🗑 Очистити папку зі скріншотами") }
+                OutlinedButton(onClick = { if (ScreenSamples.share(ctx, preferWhatsApp = false)) askClear = true }) { Text("Надіслати іншим способом") }
             }
         }
         if (entries.isNotEmpty()) item {

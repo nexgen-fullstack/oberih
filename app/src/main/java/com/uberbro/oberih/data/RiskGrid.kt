@@ -6,11 +6,30 @@ import kotlin.math.cos
 import kotlin.math.sqrt
 
 /**
- * Карта ризику Чикаго: місто поділене на клітинки ~440×440 м.
- * Для кожної клітинки — «бал небезпеки» за весь день і окремо за ніч
+ * Місто з детальною картою кварталів. Клітинка = floor(lat·250) × floor(lon·200) ≈ 445 × 415 м
+ * (так само групує і сервер міста, тому дані про людність лягають точно в ті самі клітинки).
+ */
+enum class Region(val title: String, val row0: Int, val col0: Int, val rows: Int, val cols: Int, val file: String) {
+    // floor(41.632·250)=10408, floor(-87.950·200)=-17590
+    CHICAGO("Чикаго", 10408, -17590, 100, 86, "risk_grid.bin"),
+    // floor(42.900·250)=10725, floor(-88.080·200)=-17616
+    MILWAUKEE("Мілвокі", 10725, -17616, 76, 47, "risk_grid_mke.bin");
+
+    val cells: Int get() = rows * cols
+    fun rowOf(lat: Double): Int = kotlin.math.floor(lat * 250).toInt() - row0
+    fun colOf(lon: Double): Int = kotlin.math.floor(lon * 200).toInt() - col0
+    fun index(lat: Double, lon: Double): Int {
+        val r = rowOf(lat); val c = colOf(lon)
+        return if (r in 0 until rows && c in 0 until cols) r * cols + c else -1
+    }
+}
+
+/**
+ * Карта ризику одного міста: для кожної клітинки — «бал небезпеки» за весь день і окремо за ніч
  * (вже згладжений із сусідами, щоб межі зон не були рваними).
  */
 class RiskGrid(
+    val region: Region,
     val all: FloatArray,
     val night: FloatArray,
     val covered: BooleanArray,
@@ -39,7 +58,9 @@ class RiskGrid(
         return maxOf(v[((v.size - 1) * p).toInt()], 0.01f)
     }
 
-    fun cellIndex(lat: Double, lon: Double): Int = RiskGrid.index(lat, lon)
+    fun cellIndex(lat: Double, lon: Double): Int = region.index(lat, lon)
+
+    fun covers(lat: Double, lon: Double): Boolean = cellIndex(lat, lon).let { it >= 0 && covered[it] }
 
     /** Рівень у точці. Вночі жовта зона стає темно-помаранчевою. */
     fun levelAt(lat: Double, lon: Double, isNight: Boolean, s: Sensitivity): Level {
@@ -61,8 +82,9 @@ class RiskGrid(
         else -> Level.GREEN
     }
 
-    /** Назва найближчого району (community area), якщо точка в межах міста. */
+    /** Назва найближчого району Чикаго (community area), якщо точка в межах міста. */
     fun areaName(lat: Double, lon: Double): String? {
+        if (region != Region.CHICAGO) return if (covers(lat, lon)) region.title else null
         var best = -1
         var bestD = Double.MAX_VALUE
         for (a in 1..77) {
@@ -77,38 +99,35 @@ class RiskGrid(
         if (area in 1..77 && areaLat[area] != 0.0) areaLat[area] to areaLon[area] else null
 
     fun write(out: DataOutputStream) {
-        out.writeInt(MAGIC); out.writeInt(VERSION)
+        out.writeInt(MAGIC); out.writeInt(VERSION); out.writeInt(region.ordinal)
         out.writeLong(generatedAt); out.writeUTF(newestIncident); out.writeInt(incidentCount)
-        for (i in 0 until CELLS) { out.writeFloat(all[i]); out.writeFloat(night[i]); out.writeBoolean(covered[i]) }
+        for (i in 0 until region.cells) { out.writeFloat(all[i]); out.writeFloat(night[i]); out.writeBoolean(covered[i]) }
         for (a in 0..77) { out.writeDouble(areaLat[a]); out.writeDouble(areaLon[a]) }
     }
 
     companion object {
-        // Клітинка = floor(lat·250) × floor(lon·200): ≈445 × 415 м. Так само групує і сервер міста.
-        const val ROW0 = 10408   // floor(41.632 · 250)
-        const val COL0 = -17590  // floor(-87.950 · 200)
-        const val ROWS = 100
-        const val COLS = 86
-        const val CELLS = ROWS * COLS
+        // Скорочення для Чикаго (основне місто).
+        val ROW0 get() = Region.CHICAGO.row0
+        val COL0 get() = Region.CHICAGO.col0
+        val ROWS get() = Region.CHICAGO.rows
+        val COLS get() = Region.CHICAGO.cols
+        fun rowOf(lat: Double) = Region.CHICAGO.rowOf(lat)
+        fun colOf(lon: Double) = Region.CHICAGO.colOf(lon)
+        fun index(lat: Double, lon: Double) = Region.CHICAGO.index(lat, lon)
+
         private const val MAGIC = 0x0BE21600
-        private const val VERSION = 2
-
-        fun rowOf(lat: Double): Int = kotlin.math.floor(lat * 250).toInt() - ROW0
-        fun colOf(lon: Double): Int = kotlin.math.floor(lon * 200).toInt() - COL0
-
-        fun index(lat: Double, lon: Double): Int {
-            val r = rowOf(lat); val c = colOf(lon)
-            return if (r in 0 until ROWS && c in 0 until COLS) r * COLS + c else -1
-        }
+        private const val VERSION = 3
 
         fun read(inp: DataInputStream): RiskGrid {
             require(inp.readInt() == MAGIC && inp.readInt() == VERSION) { "Старий формат файлу" }
+            val region = Region.entries[inp.readInt()]
             val gen = inp.readLong(); val newest = inp.readUTF(); val cnt = inp.readInt()
-            val all = FloatArray(CELLS); val night = FloatArray(CELLS); val cov = BooleanArray(CELLS)
-            for (i in 0 until CELLS) { all[i] = inp.readFloat(); night[i] = inp.readFloat(); cov[i] = inp.readBoolean() }
+            val n = region.cells
+            val all = FloatArray(n); val night = FloatArray(n); val cov = BooleanArray(n)
+            for (i in 0 until n) { all[i] = inp.readFloat(); night[i] = inp.readFloat(); cov[i] = inp.readBoolean() }
             val aLat = DoubleArray(78); val aLon = DoubleArray(78)
             for (a in 0..77) { aLat[a] = inp.readDouble(); aLon[a] = inp.readDouble() }
-            return RiskGrid(all, night, cov, aLat, aLon, gen, newest, cnt)
+            return RiskGrid(region, all, night, cov, aLat, aLon, gen, newest, cnt)
         }
 
         fun distanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
@@ -120,11 +139,12 @@ class RiskGrid(
 }
 
 /** Збирає інциденти в сітку. Чистий Kotlin — перевіряється юніт-тестами. */
-class RiskGridBuilder {
-    private val rawAll = FloatArray(RiskGrid.CELLS)
-    private val rawNight = FloatArray(RiskGrid.CELLS)
-    private val hits = IntArray(RiskGrid.CELLS)
-    private val crowd = FloatArray(RiskGrid.CELLS)
+class RiskGridBuilder(val region: Region = Region.CHICAGO) {
+    private val n = region.cells
+    private val rawAll = FloatArray(n)
+    private val rawNight = FloatArray(n)
+    private val hits = IntArray(n)
+    private val crowd = FloatArray(n)
     private val aLat = DoubleArray(78)
     private val aLon = DoubleArray(78)
     private val aCnt = IntArray(78)
@@ -135,7 +155,7 @@ class RiskGridBuilder {
 
     fun add(lat: Double, lon: Double, weight: Float, atNight: Boolean, area: Int, date: String) {
         if (area in 1..77) { aLat[area] += lat; aLon[area] += lon; aCnt[area]++ }
-        val i = RiskGrid.index(lat, lon)
+        val i = region.index(lat, lon)
         if (i < 0) return
         rawAll[i] += weight
         if (atNight) rawNight[i] += weight
@@ -149,54 +169,56 @@ class RiskGridBuilder {
      * Без нього людні безпечні райони (Loop, River North) виглядали б «червоними» просто через натовп.
      */
     fun addCrowd(row: Int, col: Int, count: Int) {
-        if (row in 0 until RiskGrid.ROWS && col in 0 until RiskGrid.COLS) {
-            val i = row * RiskGrid.COLS + col
+        if (row in 0 until region.rows && col in 0 until region.cols) {
+            val i = row * region.cols + col
             crowd[i] += count.toFloat()
             hits[i] += count
         }
     }
 
     fun build(generatedAt: Long): RiskGrid {
-        val covered = BooleanArray(RiskGrid.CELLS)
-        for (r in 0 until RiskGrid.ROWS) for (c in 0 until RiskGrid.COLS) {
+        val rows = region.rows; val cols = region.cols
+        val covered = BooleanArray(n)
+        for (r in 0 until rows) for (c in 0 until cols) {
             var any = false
             loop@ for (dr in -2..2) for (dc in -2..2) {
                 val rr = r + dr; val cc = c + dc
-                if (rr in 0 until RiskGrid.ROWS && cc in 0 until RiskGrid.COLS && hits[rr * RiskGrid.COLS + cc] > 0) {
+                if (rr in 0 until rows && cc in 0 until cols && hits[rr * cols + cc] > 0) {
                     any = true; break@loop
                 }
             }
-            covered[r * RiskGrid.COLS + c] = any
+            covered[r * cols + c] = any
         }
         for (a in 1..77) if (aCnt[a] > 0) { aLat[a] /= aCnt[a]; aLon[a] /= aCnt[a] }
         // Небезпека на одну людину, а не загальна кількість: бал ÷ (1 + людність/50). Підібрано на даних Чикаго.
         val people = smooth(crowd)
         val all = smooth(rawAll); val night = smooth(rawNight)
-        for (i in 0 until RiskGrid.CELLS) {
+        for (i in 0 until n) {
             val k = 1f + people[i] / CROWD_SCALE
             all[i] /= k; night[i] /= k
         }
-        return RiskGrid(all, night, covered, aLat, aLon, generatedAt, newest, count)
+        return RiskGrid(region, all, night, covered, aLat, aLon, generatedAt, newest, count)
     }
 
     private companion object { const val CROWD_SCALE = 50f }
 
     /** Згладжування: клітинка + половина сусідів по сторонах + третина по діагоналях. */
     private fun smooth(src: FloatArray): FloatArray {
-        val out = FloatArray(RiskGrid.CELLS)
-        for (r in 0 until RiskGrid.ROWS) for (c in 0 until RiskGrid.COLS) {
+        val rows = region.rows; val cols = region.cols
+        val out = FloatArray(n)
+        for (r in 0 until rows) for (c in 0 until cols) {
             var s = 0f
             for (dr in -1..1) for (dc in -1..1) {
                 val rr = r + dr; val cc = c + dc
-                if (rr !in 0 until RiskGrid.ROWS || cc !in 0 until RiskGrid.COLS) continue
+                if (rr !in 0 until rows || cc !in 0 until cols) continue
                 val w = when {
                     dr == 0 && dc == 0 -> 1f
                     dr == 0 || dc == 0 -> 0.5f
                     else -> 0.33f
                 }
-                s += src[rr * RiskGrid.COLS + cc] * w
+                s += src[rr * cols + cc] * w
             }
-            out[r * RiskGrid.COLS + c] = s
+            out[r * cols + c] = s
         }
         return out
     }
@@ -216,6 +238,9 @@ object CrimeWeights {
     val WHERE_TYPES: String =
         "(primary_type in(${TYPES.joinToString(",") { "'$it'" }}) OR " +
             "(primary_type in('BATTERY','ASSAULT') AND description like 'AGG%'))"
+
+    /** Коди NIBRS (Мілвокі), які беремо: вбивство, пограбування, тяжкий напад, зброя, наркотики, зґвалтування, викрадення. */
+    val NIBRS_CODES = listOf("09A", "120", "13A", "520", "35A", "11A", "100")
 
     fun weight(type: String, description: String, domestic: Boolean, ageDays: Long): Float {
         val d = description.uppercase()
@@ -240,12 +265,39 @@ object CrimeWeights {
         }
         // Домашні конфлікти рідко загрожують людині на вулиці.
         if (domestic) w *= 0.35f
-        w *= when {
-            ageDays <= 30 -> 1.3f
-            ageDays <= 90 -> 1.0f
-            else -> 0.7f
+        return w * recency(ageDays)
+    }
+
+    /** Те саме для Мілвокі, де злочини записані кодами NIBRS (напр. «120;240», зброя «HANDGUN»). */
+    fun nibrsWeight(codes: String, weapon: String?, ageDays: Long): Float {
+        val set = codes.split(';', ',').map { it.trim() }.toSet()
+        val wpn = (weapon ?: "").uppercase()
+        val gun = "GUN" in wpn || "FIREARM" in wpn || "RIFLE" in wpn
+        var w = 0f
+        for (c in set) {
+            val x = when (c) {
+                "09A" -> 15f
+                "120" -> when {
+                    "240" in set -> 14f // пограбування + викрадення авто = carjacking
+                    gun -> 2.5f
+                    else -> 0.5f
+                }
+                "13A" -> if (gun) 5f else 0.6f
+                "520" -> 3f
+                "35A" -> 1f
+                "100" -> 1.5f
+                "11A" -> 0.5f
+                else -> 0f
+            }
+            if (x > w) w = x
         }
-        return w
+        return w * recency(ageDays)
+    }
+
+    private fun recency(ageDays: Long) = when {
+        ageDays <= 30 -> 1.3f
+        ageDays <= 90 -> 1.0f
+        else -> 0.7f
     }
 
     /** Ніч для статистики: 20:00–05:59. Час рівно 00:00:00 часто означає «невідомо» — не рахуємо. */

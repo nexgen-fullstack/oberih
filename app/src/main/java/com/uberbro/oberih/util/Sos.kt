@@ -8,12 +8,15 @@ import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.CancellationSignal
+import android.telephony.SmsManager
+import android.util.Log
+import com.uberbro.oberih.data.SosContact
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.URLEncoder
 import kotlin.coroutines.resume
 
-/** SOS: одним натисканням відкрити WhatsApp (або SMS) з повідомленням і точкою на карті. */
+/** SOS: повідомлення з точкою на карті кільком людям (SMS усім одразу, WhatsApp, дзвінок 911). */
 object Sos {
 
     @SuppressLint("MissingPermission")
@@ -40,25 +43,50 @@ object Sos {
         return fresh ?: last
     }
 
-    fun message(loc: Location?): String {
-        val where = loc?.let { "https://maps.google.com/?q=${"%.6f".format(java.util.Locale.US, it.latitude)},${"%.6f".format(java.util.Locale.US, it.longitude)}" }
-            ?: "(не вдалося визначити місце)"
-        return "🆘 Мені потрібна допомога! Моє місце зараз: $where"
+    fun message(loc: Location?, driver: String = ""): String {
+        val where = loc?.let {
+            "https://maps.google.com/?q=${"%.6f".format(java.util.Locale.US, it.latitude)},${"%.6f".format(java.util.Locale.US, it.longitude)}"
+        } ?: "(не вдалося визначити місце)"
+        val who = if (driver.isNotBlank()) "$driver: " else ""
+        return "🆘 ${who}Мені потрібна допомога! Моє місце зараз: $where"
     }
 
-    fun send(ctx: Context, number: String, loc: Location?) {
-        val text = message(loc)
-        val digits = number.filter { it.isDigit() }
-        val intents = buildList {
-            if (digits.length >= 7) {
-                add(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits?text=" + URLEncoder.encode(text, "UTF-8")))
-                    .setPackage("com.whatsapp"))
-                add(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$number")).putExtra("sms_body", text))
-            }
-            add(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Надіслати SOS"))
+    private fun digits(phone: String) = phone.filter { it.isDigit() }
+
+    /** Надсилає SMS усім одразу, без додаткових вікон. Повертає скільком вдалося. */
+    fun smsAll(ctx: Context, contacts: List<SosContact>, text: String): Int {
+        @Suppress("DEPRECATION")
+        val sms = if (Build.VERSION.SDK_INT >= 31) ctx.getSystemService(SmsManager::class.java) else SmsManager.getDefault()
+        var ok = 0
+        for (c in contacts) {
+            val to = c.phone.filter { it.isDigit() || it == '+' }
+            if (to.length < 7) continue
+            runCatching {
+                sms.sendMultipartTextMessage(to, null, sms.divideMessage(text), null, null)
+                ok++
+            }.onFailure { Log.w("Sos", "sms to $to", it) }
         }
-        for (i in intents) {
-            if (runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return
-        }
+        return ok
+    }
+
+    fun whatsApp(ctx: Context, contact: SosContact, text: String) {
+        val url = "https://wa.me/${digits(contact.phone)}?text=" + URLEncoder.encode(text, "UTF-8")
+        val tries = listOf(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.whatsapp"),
+            Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.whatsapp.w4b"),
+            Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${contact.phone}")).putExtra("sms_body", text),
+        )
+        for (i in tries) if (runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return
+    }
+
+    fun call911(ctx: Context) {
+        runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:911")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
+
+    fun shareAny(ctx: Context, text: String) {
+        ctx.startActivity(
+            Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Надіслати SOS")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
     }
 }

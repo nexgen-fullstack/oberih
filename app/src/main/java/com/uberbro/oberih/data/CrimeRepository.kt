@@ -24,8 +24,11 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /**
- * Дані про злочинність з офіційного порталу Чикаго (Chicago Data Portal, датасет ijzp-q8t2).
- * Безкоштовно, без ключа. Завантажуємо останні 180 днів раз на добу і зберігаємо на телефоні.
+ * Дані про злочинність:
+ * - Чикаго — офіційний портал міста (Chicago Data Portal, датасет ijzp-q8t2);
+ * - Мілвокі — портал data.milwaukee.gov (WIBR);
+ * - інші міста Іллінойсу й Вісконсину — річні дані ФБР, вбудовані в програму (assets/towns.tsv).
+ * Безкоштовно, без ключів. Квартали Чикаго й Мілвокі оновлюються раз на добу і зберігаються на телефоні.
  */
 object CrimeRepository {
     private const val TAG = "CrimeRepo"
@@ -37,23 +40,50 @@ object CrimeRepository {
     private val _grid = MutableStateFlow<RiskGrid?>(null)
     val grid: StateFlow<RiskGrid?> = _grid
 
+    private val _milwaukee = MutableStateFlow<RiskGrid?>(null)
+    val milwaukee: StateFlow<RiskGrid?> = _milwaukee
+
+    @Volatile private var towns: TownMap? = null
+
     /** Прогрес завантаження 0..1, або null коли нічого не завантажується. */
     private val _progress = MutableStateFlow<Float?>(null)
     val progress: StateFlow<Float?> = _progress
 
     private val mutex = Mutex()
 
-    private fun file(ctx: Context) = File(ctx.filesDir, "risk_grid.bin")
+    private fun file(ctx: Context, region: Region = Region.CHICAGO) = File(ctx.filesDir, region.file)
 
-    /** Завантажує збережену карту з телефону (швидко, без інтернету). */
+    private fun readGrid(ctx: Context, region: Region): RiskGrid? {
+        val f = file(ctx, region)
+        if (!f.exists()) return null
+        return runCatching {
+            DataInputStream(BufferedInputStream(f.inputStream())).use { RiskGrid.read(it) }
+        }.onFailure { Log.w(TAG, "load ${region.name} failed", it) }.getOrNull()
+    }
+
+    private fun saveGrid(ctx: Context, grid: RiskGrid) {
+        val f = file(ctx, grid.region)
+        val tmp = File(f.path + ".tmp")
+        DataOutputStream(BufferedOutputStream(tmp.outputStream())).use { grid.write(it) }
+        if (!tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
+    }
+
+    /** Завантажує збережену карту Чикаго з телефону (швидко, без інтернету). */
     suspend fun load(ctx: Context): RiskGrid? = withContext(Dispatchers.IO) {
         _grid.value?.let { return@withContext it }
-        val f = file(ctx)
-        if (!f.exists()) return@withContext null
-        runCatching {
-            DataInputStream(BufferedInputStream(f.inputStream())).use { RiskGrid.read(it) }
-        }.onFailure { Log.w(TAG, "load failed", it) }.getOrNull()?.also { _grid.value = it }
+        readGrid(ctx, Region.CHICAGO)?.also { _grid.value = it }
     }
+
+    /** Вся карта: Чикаго + Мілвокі + інші міста. */
+    suspend fun map(ctx: Context): RiskMap = withContext(Dispatchers.IO) {
+        val chi = load(ctx)
+        val mke = _milwaukee.value ?: readGrid(ctx, Region.MILWAUKEE)?.also { _milwaukee.value = it }
+        RiskMap(chi, mke, towns(ctx))
+    }
+
+    fun towns(ctx: Context): TownMap = towns ?: runCatching {
+        TownMap.parse(ctx.assets.open("towns.tsv").bufferedReader().readText())
+    }.getOrElse { Log.w(TAG, "towns", it); TownMap(emptyList()) }.also { towns = it }
 
     fun isStale(g: RiskGrid?): Boolean =
         g == null || System.currentTimeMillis() - g.generatedAt > 20 * 3600_000L
@@ -70,7 +100,7 @@ object CrimeRepository {
             try {
                 val today = LocalDate.now(CHICAGO)
                 val since = today.minusDays(DAYS)
-                val builder = RiskGridBuilder()
+                val builder = RiskGridBuilder(Region.CHICAGO)
                 val where = "date > '${since}T00:00:00' AND latitude IS NOT NULL AND ${CrimeWeights.WHERE_TYPES}"
                 val expected = fetchCount(where).coerceAtLeast(1)
                 var offset = 0
@@ -84,11 +114,10 @@ object CrimeRepository {
                 fetchCrowd(since, builder)
                 _progress.value = 0.98f
                 val grid = builder.build(System.currentTimeMillis())
-                val f = file(ctx)
-                val tmp = File(f.path + ".tmp")
-                DataOutputStream(BufferedOutputStream(tmp.outputStream())).use { grid.write(it) }
-                if (!tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
+                saveGrid(ctx, grid)
                 _grid.value = grid
+                // Мілвокі — окремо: якщо його сервер недоступний, карта Чикаго однаково оновлена.
+                runCatching { refreshMilwaukee(ctx, since, today) }.onFailure { Log.w(TAG, "milwaukee", it) }
                 Prefs(ctx).lastDataError = null
                 null
             } catch (e: Exception) {
@@ -99,6 +128,54 @@ object CrimeRepository {
             } finally {
                 _progress.value = null
             }
+        }
+    }
+
+    private const val MKE_RESOURCE = "87843297-a6fa-46d4-ba5d-cb342fb2d3bb"
+
+    /** Мілвокі: тяжкі злочини (коди NIBRS) з координатами + крадіжки по клітинках як мірило людності. */
+    private fun refreshMilwaukee(ctx: Context, since: LocalDate, today: LocalDate) {
+        val b = RiskGridBuilder(Region.MILWAUKEE)
+        val codes = CrimeWeights.NIBRS_CODES.joinToString(" OR ") { "\"Offense_All\" LIKE '%$it%'" }
+        val rows = mkeSql(
+            "SELECT \"Incident_Date\",\"Offense_All\",\"Weapon_Used_All\",\"Address_Latitude\",\"Address_Longitude\" " +
+                "FROM \"$MKE_RESOURCE\" WHERE \"Incident_Date\" >= '$since' AND \"Incident_Date\" <= '${today.plusDays(1)}' AND ($codes)",
+        )
+        for (i in 0 until rows.length()) {
+            val o = rows.getJSONObject(i)
+            val lat = o.optString("Address_Latitude").toDoubleOrNull() ?: continue
+            val lon = o.optString("Address_Longitude").toDoubleOrNull() ?: continue
+            val date = o.optString("Incident_Date")
+            val age = runCatching { ChronoUnit.DAYS.between(LocalDate.parse(date.take(10)), today) }.getOrDefault(90L)
+            val w = CrimeWeights.nibrsWeight(o.optString("Offense_All"), o.optString("Weapon_Used_All"), age)
+            if (w > 0f) b.add(lat, lon, w, CrimeWeights.isNightTime(date), 0, date.take(10))
+        }
+        if (b.count < 300) error("Мілвокі: замало даних (${b.count})")
+        val crowd = mkeSql(
+            "SELECT floor(CAST(\"Address_Latitude\" AS float)*250) AS r, floor(CAST(\"Address_Longitude\" AS float)*200) AS c, count(*) AS n " +
+                "FROM \"$MKE_RESOURCE\" WHERE \"Incident_Date\" >= '$since' AND \"Offense_All\" LIKE '%23%' AND \"Address_Latitude\" <> '' GROUP BY 1,2",
+        )
+        for (i in 0 until crowd.length()) {
+            val o = crowd.getJSONObject(i)
+            b.addCrowd(o.optDouble("r").toInt() - Region.MILWAUKEE.row0, o.optDouble("c").toInt() - Region.MILWAUKEE.col0, o.optInt("n"))
+        }
+        val g = b.build(System.currentTimeMillis())
+        saveGrid(ctx, g)
+        _milwaukee.value = g
+    }
+
+    private fun mkeSql(sql: String): org.json.JSONArray {
+        val url = "https://data.milwaukee.gov/api/3/action/datastore_search_sql?sql=" + URLEncoder.encode(sql, "UTF-8")
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 15_000; readTimeout = 60_000
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            if (conn.responseCode != 200) error("Мілвокі: сервер відповів ${conn.responseCode}")
+            val o = org.json.JSONObject(conn.inputStream.bufferedReader().readText())
+            return o.getJSONObject("result").getJSONArray("records")
+        } finally {
+            conn.disconnect()
         }
     }
 

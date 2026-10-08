@@ -34,8 +34,8 @@ object Geo {
     private const val UA = "Oberih/1.0 (driver safety helper; personal use)"
     private val cache = LruCache<String, GeoPoint>(300)
 
-    // Широка рамка Чикаго з передмістями.
-    private const val S = 41.40; private const val W = -88.40; private const val N = 42.50; private const val E = -87.40
+    // Рамка пошуку: увесь Іллінойс + південь Вісконсину до Мілвокі.
+    private const val S = 36.90; private const val W = -91.60; private const val N = 43.30; private const val E = -87.00
 
     fun buildQuery(raw: String): String {
         val t = raw.replace('\n', ' ').replace(Regex("\\s+"), " ").trim().trimEnd(',', '.')

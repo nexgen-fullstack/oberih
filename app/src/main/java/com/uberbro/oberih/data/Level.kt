@@ -16,9 +16,12 @@ enum class Level(val severity: Int, val argb: Long, val word: String, val title:
     }
 }
 
-/** Наскільки суворо фарбувати зони: частка районів міста, що стають червоними/жовтими. */
-enum class Sensitivity(val label: String, val redPct: Double, val yellowPct: Double) {
-    STRICT("Суворо", 0.84, 0.60),
-    NORMAL("Звичайно", 0.88, 0.70),
-    LENIENT("М'яко", 0.92, 0.78),
+/**
+ * Наскільки суворо фарбувати зони: частка кварталів Чикаго/Мілвокі, що стають червоними/жовтими,
+ * і пороги для інших міст (насильницьких злочинів на 100 000 жителів за рік; середнє по США ≈ 380).
+ */
+enum class Sensitivity(val label: String, val redPct: Double, val yellowPct: Double, val townRed: Int, val townYellow: Int) {
+    STRICT("Суворо", 0.84, 0.60, 650, 280),
+    NORMAL("Звичайно", 0.88, 0.70, 900, 400),
+    LENIENT("М'яко", 0.92, 0.78, 1300, 550),
 }

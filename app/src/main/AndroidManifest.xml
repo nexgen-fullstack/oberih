@@ -8,6 +8,9 @@
     <!-- Тільки для кнопки SOS: надіслати своє місце рідним. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Тільки для SOS: надіслати SMS усім довіреним людям одним натисканням. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <!-- Щоб на Android 11+ можна було перевірити, чи встановлені Uber/Lyft/Waze, і відкрити Waze. -->
     <queries>

@@ -19,8 +19,10 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -36,6 +38,7 @@ import com.uberbro.oberih.BuildConfig
 import com.uberbro.oberih.data.DistanceUnit
 import com.uberbro.oberih.data.FlashMode
 import com.uberbro.oberih.data.Prefs
+import com.uberbro.oberih.data.SosContact
 import com.uberbro.oberih.data.Sensitivity
 import com.uberbro.oberih.data.VoiceLang
 import com.uberbro.oberih.util.UpdateChecker
@@ -57,7 +60,9 @@ fun SettingsScreen(modifier: Modifier) {
     var near by remember { mutableStateOf(prefs.nearMeters) }
     var unit by remember { mutableStateOf(prefs.distanceUnit) }
     var screens by remember { mutableStateOf(prefs.collectScreens) }
-    var sos by remember { mutableStateOf(prefs.sosNumber) }
+    val contacts = remember { mutableStateListOf<SosContact>().apply { addAll(prefs.sosContacts) } }
+    var driver by remember { mutableStateOf(prefs.driverName) }
+    fun saveContacts() { prefs.sosContacts = contacts.toList() }
 
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Налаштування", fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -90,14 +95,37 @@ fun SettingsScreen(modifier: Modifier) {
         SectionTitle("SOS")
         SectionCard {
             OutlinedTextField(
-                value = sos,
-                onValueChange = { sos = it; prefs.sosNumber = it },
-                label = { Text("Номер рідної людини (з кодом країни, напр. +380…)", fontSize = 13.sp) },
+                value = driver,
+                onValueChange = { driver = it; prefs.driverName = it },
+                label = { Text("Твоє ім'я (буде в повідомленні)", fontSize = 13.sp) },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Hint("Кнопка SOS на Головній відкриє WhatsApp цієї людини з повідомленням «Мені потрібна допомога» і точкою на карті. Залишиться тільки натиснути «Надіслати».")
+            Text("Кому надсилати SOS:", fontWeight = FontWeight.SemiBold)
+            contacts.forEachIndexed { i, c ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = c.name,
+                            onValueChange = { contacts[i] = c.copy(name = it); saveContacts() },
+                            label = { Text("Ім'я", fontSize = 13.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { contacts.removeAt(i); saveContacts() }) { Text("✕", fontSize = 20.sp) }
+                    }
+                    OutlinedTextField(
+                        value = c.phone,
+                        onValueChange = { contacts[i] = c.copy(phone = it); saveContacts() },
+                        label = { Text("Номер з кодом країни: +1… або +380…", fontSize = 13.sp) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            if (contacts.size < 8) OutlinedButton(onClick = { contacts.add(SosContact("", "")) }) { Text("+ Додати людину") }
+            Hint("Додай рідних і друзів-водіїв, які працюють поруч. Кнопка SOS на Головній: «SMS усім» — одразу всім одним натисканням; або WhatsApp кожному окремо; або дзвінок 911.\nSMS на номери інших країн (напр. +380) може коштувати грошей за тарифом оператора.")
         }
 
         SectionTitle("НАСКІЛЬКИ СУВОРО ФАРБУВАТИ ЗОНИ")

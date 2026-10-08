@@ -75,13 +75,26 @@ class MainActivity : ComponentActivity() {
     private val tab = mutableIntStateOf(0)
     private val sharedText = mutableStateOf<String?>(null)
     private val resumeTick = mutableIntStateOf(0)
+    private val wizard = mutableStateOf(false)
+    private val resumed = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
+        // Перший запуск після встановлення — одразу майстер налаштування.
+        if (!Prefs(this).setupDone) wizard.value = true
         setContent {
             OberihTheme {
-                App(tab.intValue, { tab.intValue = it }, sharedText.value, { sharedText.value = null }, resumeTick.intValue)
+                if (wizard.value) {
+                    SetupWizard(resumeTick.intValue, resumed.value) { openDemo, openSos ->
+                        wizard.value = false
+                        if (openSos) tab.intValue = 3
+                        if (openDemo) startActivity(Intent(this, DemoOfferActivity::class.java))
+                    }
+                } else {
+                    App(tab.intValue, { tab.intValue = it }, sharedText.value, { sharedText.value = null }, resumeTick.intValue,
+                        startWizard = { wizard.value = true })
+                }
             }
         }
     }
@@ -93,7 +106,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        resumed.value = true
         resumeTick.intValue++
+    }
+
+    override fun onPause() {
+        resumed.value = false
+        super.onPause()
     }
 
     private fun handleIntent(i: Intent?) {
@@ -104,7 +123,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun App(tab: Int, setTab: (Int) -> Unit, shared: String?, consumeShared: () -> Unit, resumeTick: Int) {
+private fun App(tab: Int, setTab: (Int) -> Unit, shared: String?, consumeShared: () -> Unit, resumeTick: Int, startWizard: () -> Unit) {
     val items = listOf("Головна" to Icons.Filled.Home, "Перевірка" to Icons.Filled.Search,
         "Журнал" to Icons.Filled.List, "Налаштування" to Icons.Filled.Settings)
     Scaffold(
@@ -121,7 +140,7 @@ private fun App(tab: Int, setTab: (Int) -> Unit, shared: String?, consumeShared:
     ) { pad ->
         val m = Modifier.padding(pad).fillMaxSize()
         when (tab) {
-            0 -> HomeScreen(m, resumeTick)
+            0 -> HomeScreen(m, resumeTick, startWizard)
             1 -> CheckScreen(m, shared, consumeShared)
             2 -> JournalScreen(m)
             else -> SettingsScreen(m)
@@ -135,12 +154,14 @@ fun isIgnoringBattery(ctx: Context): Boolean =
 fun fmtDate(ms: Long): String = SimpleDateFormat("dd.MM HH:mm", Locale("uk")).format(Date(ms))
 
 @Composable
-fun HomeScreen(modifier: Modifier, resumeTick: Int) {
+fun HomeScreen(modifier: Modifier, resumeTick: Int, startWizard: () -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val running by OberihAccessibilityService.running.collectAsState()
     val grid by CrimeRepository.grid.collectAsState()
     val progress by CrimeRepository.progress.collectAsState()
+    val mke by CrimeRepository.milwaukee.collectAsState()
+    val townCount = remember { CrimeRepository.towns(ctx).towns.size }
     var dataError by remember { mutableStateOf(Prefs(ctx).lastDataError) }
     val battery = remember(resumeTick) { isIgnoringBattery(ctx) }
     val notifOk = remember(resumeTick) {
@@ -149,16 +170,8 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int) {
     }
     var update by remember { mutableStateOf(UpdateChecker.cached(Prefs(ctx))) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-    var sosBusy by remember { mutableStateOf(false) }
-    fun sendSos() {
-        sosBusy = true
-        scope.launch {
-            val loc = runCatching { com.uberbro.oberih.util.Sos.location(ctx) }.getOrNull()
-            com.uberbro.oberih.util.Sos.send(ctx, Prefs(ctx).sosNumber, loc)
-            sosBusy = false
-        }
-    }
-    val locLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { sendSos() }
+    var sosOpen by remember { mutableStateOf(false) }
+    if (sosOpen) SosDialog { sosOpen = false }
 
     // Тестовий голос працює навіть без увімкненого сервісу.
     val testSpeaker = remember { Speaker(ctx) }
@@ -171,6 +184,7 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int) {
 
     LaunchedEffect(Unit) {
         val g = CrimeRepository.load(ctx)
+        CrimeRepository.map(ctx) // підвантажує й Мілвокі
         if (CrimeRepository.isStale(g)) { dataError = CrimeRepository.refreshIfStale(ctx) }
         update = runCatching { UpdateChecker.check(ctx) }.getOrNull()
     }
@@ -191,21 +205,22 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int) {
                 }
             }
         }
+        if (!ready || !battery) item {
+            Button(
+                onClick = startWizard,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32), contentColor = Color.White),
+                modifier = Modifier.fillMaxWidth().height(64.dp), shape = RoundedCornerShape(18.dp),
+            ) { Text("⚙ Налаштувати все автоматично", fontSize = 19.sp, fontWeight = FontWeight.Bold) }
+        }
         item {
             Button(
-                onClick = {
-                    val granted = ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
-                        android.content.pm.PackageManager.PERMISSION_GRANTED
-                    if (granted) sendSos()
-                    else locLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                },
-                enabled = !sosBusy,
+                onClick = { sosOpen = true },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828), contentColor = Color.White),
                 modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(18.dp),
             ) {
-                Text(if (sosBusy) "Визначаю місце…" else "🆘 SOS — надіслати своє місце", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("🆘 SOS — надіслати своє місце", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
-            if (Prefs(ctx).sosNumber.isBlank()) Hint("Номер для SOS вкажи в Налаштуваннях (тоді відкриється одразу WhatsApp цієї людини).")
+            if (Prefs(ctx).sosContacts.isEmpty()) Hint("Людей для SOS додай у Налаштуваннях → SOS (рідні, друзі поруч).")
         }
         update?.let { u ->
             item {
@@ -225,7 +240,12 @@ fun HomeScreen(modifier: Modifier, resumeTick: Int) {
                         Hint("Завантажую дані поліції Чикаго… ${((progress ?: 0f) * 100).toInt()}%")
                         LinearProgressIndicator(progress = { progress ?: 0f }, modifier = Modifier.fillMaxWidth())
                     }
-                    grid != null -> Hint("Оновлено ${fmtDate(grid!!.generatedAt)} · ${"%,d".format(grid!!.incidentCount).replace(',', ' ')} подій за 6 місяців · останні дані за ${grid!!.newestIncident}. Оновлюється саме раз на добу.")
+                    grid != null -> Hint(
+                        "Чикаго: ${"%,d".format(grid!!.incidentCount).replace(',', ' ')} подій за 6 місяців (до ${grid!!.newestIncident}).\n" +
+                            (mke?.let { "Мілвокі: ${"%,d".format(it.incidentCount).replace(',', ' ')} подій (до ${it.newestIncident}).\n" } ?: "") +
+                            "Інші міста Іллінойсу й Вісконсину до Мілвокі: $townCount (дані ФБР за рік).\n" +
+                            "Оновлено ${fmtDate(grid!!.generatedAt)}, далі — саме раз на добу.",
+                    )
                     else -> Hint(dataError ?: "Потрібен інтернет, щоб завантажити дані (≈3 МБ, один раз на добу).")
                 }
                 if (progress == null) OutlinedButton(onClick = { scope.launch { dataError = CrimeRepository.refresh(ctx) } }) {

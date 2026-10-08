@@ -7,6 +7,7 @@ import androidx.core.content.edit
 enum class FlashMode(val label: String) { FULL("Весь екран"), FRAME("Тільки рамка") }
 enum class VoiceLang(val label: String) { UK("Українська"), EN("English") }
 enum class DistanceUnit(val label: String) { KM("Кілометри"), MI("Милі") }
+data class SosContact(val name: String, val phone: String)
 
 /** Усі налаштування програми. Значення за замовчуванням підібрані для Чикаго. */
 class Prefs(context: Context) {
@@ -77,10 +78,34 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("collectScreens", true)
         set(v) = sp.edit { putBoolean("collectScreens", v) }
 
-    /** Номер для SOS (WhatsApp або SMS), у форматі +1312… */
-    var sosNumber: String
-        get() = sp.getString("sosNumber", "") ?: ""
-        set(v) = sp.edit { putString("sosNumber", v.trim()) }
+    /** Люди для SOS (рідні, друзі поруч). Старий одиночний номер переноситься автоматично. */
+    var sosContacts: List<SosContact>
+        get() {
+            val raw = sp.getString("sosContacts", null)
+            if (raw == null) {
+                val old = sp.getString("sosNumber", "").orEmpty().trim()
+                return if (old.isNotEmpty()) listOf(SosContact("Контакт", old)) else emptyList()
+            }
+            return runCatching {
+                val arr = org.json.JSONArray(raw)
+                (0 until arr.length()).map { arr.getJSONObject(it).let { o -> SosContact(o.optString("name"), o.optString("phone")) } }
+            }.getOrDefault(emptyList())
+        }
+        set(v) = sp.edit {
+            val arr = org.json.JSONArray()
+            v.filter { it.phone.isNotBlank() }.forEach { arr.put(org.json.JSONObject().put("name", it.name.trim()).put("phone", it.phone.trim())) }
+            putString("sosContacts", arr.toString())
+        }
+
+    /** Ім'я водія для повідомлення SOS. */
+    var driverName: String
+        get() = sp.getString("driverName", "") ?: ""
+        set(v) = sp.edit { putString("driverName", v.trim()) }
+
+    /** Майстер першого налаштування вже пройдено. */
+    var setupDone: Boolean
+        get() = sp.getBoolean("setupDone", false)
+        set(v) = sp.edit { putBoolean("setupDone", v) }
 
     var lastUpdateCheck: Long
         get() = sp.getLong("lastUpdateCheck", 0)

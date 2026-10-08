@@ -90,7 +90,7 @@ class AlertOverlay(private val ctx: Context) {
         }
         v.start(type, subtitle, if (night) 0.30f else 0.42f)
         handler.removeCallbacks(hideLights)
-        handler.postDelayed(hideLights, 8_000)
+        handler.postDelayed(hideLights, 9_000)
     }
 
     private fun removeLights() {
@@ -170,24 +170,30 @@ class AlertOverlay(private val ctx: Context) {
         override fun onDraw(canvas: Canvas) {
             val w = width.toFloat(); val h = height.toFloat()
             val stroke = 12 * density
-            if (phase in 0 until PHASES) {
-                val even = phase % 2 == 0
+            // Мигалка: ліва й права половини. Під червоною рамкою — синє поле, під синьою — червоне,
+            // і кожні 0,4 с усе міняється місцями (не частіше 3 разів на секунду — безпечно для очей).
+            val flashing = phase in 0 until PHASES
+            val swap = flashing && phase % 2 == 1
+            val leftFrame = if (swap) colorB else colorA
+            val rightFrame = if (swap) colorA else colorB
+            if (flashing) {
+                val a = (peak * 255).toInt()
                 if (type == HazardType.POLICE) {
-                    // Ліва половина червона, права синя — міняються місцями.
-                    paint.color = if (even) colorA else colorB; paint.alpha = (peak * 255).toInt()
-                    canvas.drawRect(0f, 0f, w / 2, h, paint)
-                    paint.color = if (even) colorB else colorA; paint.alpha = (peak * 0.35f * 255).toInt()
-                    canvas.drawRect(w / 2, 0f, w, h, paint)
-                } else if (even) {
-                    paint.color = colorA; paint.alpha = (peak * 255).toInt()
-                    canvas.drawRect(0f, 0f, w, h, paint)
+                    paint.color = rightFrame; paint.alpha = a; canvas.drawRect(0f, 0f, w / 2, h, paint)
+                    paint.color = leftFrame; paint.alpha = a; canvas.drawRect(w / 2, 0f, w, h, paint)
+                } else if (!swap) {
+                    paint.color = AMBER; paint.alpha = a; canvas.drawRect(0f, 0f, w, h, paint)
                 }
             }
-            // Рамка: зліва/справа кольори мигалки.
-            paint.alpha = 230
-            paint.color = colorA; canvas.drawRect(0f, 0f, stroke, h, paint); canvas.drawRect(0f, 0f, w / 2, stroke, paint)
+            // Рамка: кожна половина свого кольору (для аварії — жовта/біла по черзі).
+            paint.alpha = 235
+            val lf = if (type == HazardType.POLICE) leftFrame else if (swap) Color.WHITE else AMBER
+            val rf = if (type == HazardType.POLICE) rightFrame else if (swap) Color.WHITE else AMBER
+            paint.color = lf
+            canvas.drawRect(0f, 0f, stroke, h, paint); canvas.drawRect(0f, 0f, w / 2, stroke, paint)
             canvas.drawRect(0f, h - stroke, w / 2, h, paint)
-            paint.color = colorB; canvas.drawRect(w - stroke, 0f, w, h, paint); canvas.drawRect(w / 2, 0f, w, stroke, paint)
+            paint.color = rf
+            canvas.drawRect(w - stroke, 0f, w, h, paint); canvas.drawRect(w / 2, 0f, w, stroke, paint)
             canvas.drawRect(w / 2, h - stroke, w, h, paint)
 
             // Плашка на третині висоти — не закриває підказку повороту Waze угорі й кнопки внизу.
@@ -207,7 +213,8 @@ class AlertOverlay(private val ctx: Context) {
         }
 
         companion object {
-            const val PHASES = 8
+            /** 12 перемикань × 0,4 с ≈ 5 секунд мигалки. */
+            const val PHASES = 12
             val RED = Color.parseColor("#E53935")
             val BLUE = Color.parseColor("#1E64FF")
             val AMBER = Color.parseColor("#FFB300")

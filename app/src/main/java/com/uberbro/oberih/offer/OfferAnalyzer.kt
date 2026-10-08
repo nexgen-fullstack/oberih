@@ -6,7 +6,7 @@ import com.uberbro.oberih.data.Geo
 import com.uberbro.oberih.data.GeoPoint
 import com.uberbro.oberih.data.Level
 import com.uberbro.oberih.data.Prefs
-import com.uberbro.oberih.data.RiskGrid
+import com.uberbro.oberih.data.RiskMap
 import com.uberbro.oberih.data.Sensitivity
 import com.uberbro.oberih.util.SunTimes
 import kotlinx.coroutines.async
@@ -37,10 +37,10 @@ object OfferAnalyzer {
 
     suspend fun analyze(ctx: Context, offer: ParsedOffer): Verdict = coroutineScope {
         val prefs = Prefs(ctx)
-        val grid = CrimeRepository.load(ctx)
+        val grid = CrimeRepository.map(ctx)
         val night = SunTimes.isNight()
-        val pickupJob = async { offer.pickupText?.let { Geo.geocode(ctx, it, grid) } }
-        val dropJob = async { offer.dropoffText?.let { Geo.geocode(ctx, it, grid) } }
+        val pickupJob = async { offer.pickupText?.let { Geo.geocode(ctx, it, grid.chicago) } }
+        val dropJob = async { offer.dropoffText?.let { Geo.geocode(ctx, it, grid.chicago) } }
         val p = pickupJob.await()
         val d = dropJob.await()
         val route = if (p != null && d != null) Geo.route(p, d) else null
@@ -53,7 +53,7 @@ object OfferAnalyzer {
     /** Уся логіка рішення окремо від мережі — щоб її можна було перевірити тестами. */
     fun evaluate(
         offer: ParsedOffer,
-        grid: RiskGrid?,
+        grid: RiskMap?,
         pickup: GeoPoint?,
         dropoff: GeoPoint?,
         routePoints: List<GeoPoint>,
@@ -125,7 +125,7 @@ object OfferAnalyzer {
         if (pickup == null && offer.pickupText != null) parts += "адресу подачі не знайдено"
         if (dropoff == null && offer.dropoffText != null) parts += "адресу висадки не знайдено"
         if (offer.pickupText == null && offer.dropoffText == null) parts += "адреси не прочитано"
-        if (dl == Level.UNKNOWN && dropoff != null) parts += "висадка за межами Чикаго"
+        if (dl == Level.UNKNOWN && dropoff != null) parts += "висадка: немає даних про цей район"
         return parts.joinToString(" · ")
     }
 }
